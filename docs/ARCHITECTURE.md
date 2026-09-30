@@ -192,8 +192,9 @@ maa-cli-fleet/
 （`AUTO-MAS_AutoStart`、`AUTO-MAS-Boot-Backend`、`fz-maa-launch-one`、`fz-maa-start-one`）；
 我们的 5 个 maa 任务与 5 个 worker 未受影响（实测 OUR_MAA=5 / WORKERS=5，中心 5/5 OK）。
 **回滚**：重新启用上述任务 + 启动 `E:\AUTO-MAS\AUTO-MAS.exe` 即可（配置未动）。
-**遗留**：`DailyRestart0400` / `DailyRestart1900`（`shutdown /r /f /t 30`）仍为 Ready —— 04:00/19:00 定时重启；
-现在有开机自恢复链路兜底（重启后 ~2 分钟自动恢复），保留与否待定。
+**定时重启已禁用（2026-10-01 07:42，用户决定）**：`DailyRestart0400`（下一次 10/02 04:00）与 `DailyRestart1900`（下一次 10/01 19:00）
+均 Ready → **Disabled**（任务保留，可随时重新启用）。主机不再自动重启；游戏日边界（04:00）由 cycle worker 自行判定，不依赖重启。
+稳定性兜底 = 任务级/设备级自愈 + 开机自恢复链路（断电/蓝屏后登录即自动恢复，实测 ~2 分钟）。
 
 **当前控制权**：仍是 `local-desktop`（隧道模式）驱动全队；`host-mrfz0000` 只上报不改状态。
 **下一步（需批准，属"现场操作"）**：单台试迁——对某台机停掉本机 worker/隧道，改由主机机端驱动（daily/rogue），验证真结算后再逐台迁。
