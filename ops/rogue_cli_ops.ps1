@@ -96,6 +96,15 @@ function Get-MaaProc($m) {
     Where-Object { $_.CommandLine -and ($_.CommandLine -match $needle) }
 }
 
+# 事件级等待：有任务在跑就"等它退出"（进程退出=结束通知，零延迟唤醒）；没任务/超时则立即返回
+function Wait-MaaSignal($m, [int]$TimeoutSec = 10) {
+  $w = Get-MaaProc $m
+  if (-not $w) { return "none" }
+  try { $p = [System.Diagnostics.Process]::GetProcessById([int]$w.ProcessId) } catch { return "none" }
+  try { if ($p.WaitForExit($TimeoutSec * 1000)) { return "exited" } } catch { }
+  return "timeout"
+}
+
 function Get-CurrentTask($m) {
   # 从命令行解析该机当前任务名（daily_lX / rogue_*）
   $proc = Get-CimInstance Win32_Process -Filter "Name='maa.exe'" -ErrorAction SilentlyContinue |
@@ -162,10 +171,10 @@ function Wait-TaskEnd($m, [int]$TimeoutMin = 90) {
   $deadline = (Get-Date).AddMinutes($TimeoutMin)
   $i = 0
   while ((Get-Date) -lt $deadline) {
-    if (-not (Get-MaaProc $m)) { Start-Sleep -Seconds 3; return $true }
+    $sig = Wait-MaaSignal $m 20                       # 任务退出 → 立即知道
+    if ($sig -eq "none" -or $sig -eq "exited") { Start-Sleep -Seconds 3; return $true }
     $i++
-    if (($i % 3) -eq 0) { Watch-Once $m | Out-Null }   # 每 ~60s 自检一次
-    Start-Sleep -Seconds 20
+    if (($i % 2) -eq 0) { Watch-Once $m | Out-Null }   # 等的同时也守着（~40s）
   }
   return $false
 }
@@ -329,9 +338,9 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
     }
     $end = (Get-Date).AddMinutes($waitMin)
     while ((Get-Date) -lt $end -and -not (Test-Path $stopFile)) {
-      Start-Sleep -Seconds $HealthSec
+      $sig = Wait-MaaSignal $m $HealthSec   # 任务退出=立刻醒；没任务/超时才走下一轮
       if (Test-Path $stopFile) { break }
-      Watch-Once $m | Out-Null     # 短节奏守着：进程没了/卡死 → 立刻重发（不等下一轮）
+      Watch-Once $m | Out-Null              # 退出/卡死 → 立刻重发（不等下一轮）
     }
     if (Test-Path $stopFile) { break }
     # 日常（带一次重试）
@@ -434,7 +443,7 @@ function Watch-Worker($m) {
   ("$PID") | Out-File -FilePath $pidFile -Encoding ascii
   Log ("[{0}] watch 启动（pid={1}；只自愈，不跑日常）" -f $m.Name, $PID)
   while (-not (Test-Path $stopFile)) {
-    Start-Sleep -Seconds $HealthSec
+    $sig = Wait-MaaSignal $m $HealthSec
     if (Test-Path $stopFile) { break }
     Watch-Once $m | Out-Null
   }
