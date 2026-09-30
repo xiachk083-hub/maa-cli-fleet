@@ -65,9 +65,31 @@ function Invoke-Center($conf, [string]$Method, [string]$Path, $Body = $null, [in
   }
 }
 
+# ---- 子进程执行（文件重定向 + 硬超时；不走管道，防 EOF 死等） ----------------
+function Invoke-ChildPs([string[]]$Argv, [int]$TimeoutSec = 300) {
+  $tag = [guid]::NewGuid().ToString('N').Substring(0, 8)
+  $out = Join-Path $env:TEMP ("fleetnode_" + $tag + ".out")
+  $err = Join-Path $env:TEMP ("fleetnode_" + $tag + ".err")
+  $exe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+  $p = Start-Process -FilePath $exe -ArgumentList $Argv `
+       -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+  if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+    & taskkill /PID $p.Id /T /F 2>$null | Out-Null
+    Remove-Item $out, $err -Force -ErrorAction SilentlyContinue
+    return @{ ok = $false; timeout = $true; output = ("timeout: " + $TimeoutSec + "s 未返回，已强杀") }
+  }
+  $o = (Get-Content $out -Raw -ErrorAction SilentlyContinue)
+  $e = (Get-Content $err -Raw -ErrorAction SilentlyContinue)
+  Remove-Item $out, $err -Force -ErrorAction SilentlyContinue
+  $txt = ("" + $o) + "`n" + ("" + $e)
+  return @{ ok = $true; rc = $p.ExitCode; output = $txt.Trim() }
+}
+
 # ---- 本机状态采集（解析 ops status 文本） -----------------------------------
 function Get-LocalState($conf) {
-  $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File $conf.opsScript status 2>&1 | Out-String
+  $r = Invoke-ChildPs @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $conf.opsScript, "status") 200
+  $raw = if ($r.output) { [string]$r.output } else { "" }
+  if ($r.timeout) { Log "状态采集超时（200s）→ 本轮跳过" }
   $machines = @{}
   foreach ($ln in ($raw -split "`r?`n")) {
     $m = [regex]::Match($ln, '\[(\S+ \S+)\]\s+(l-\d)\s+\|\s+maa=(\S+)\s+\|\s+日志年龄=([\d.]+)分\s+\|\s+隧道=(\S+)\s+\|\s+游戏=(\S+)\s+\|\s+(\S+)')
@@ -122,13 +144,19 @@ function Invoke-NodeCommand($conf, $item) {
   }
   Log "指令 $($item.id)：执行 $plan"
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  $out = & powershell -NoProfile -ExecutionPolicy Bypass -File @argv 2>&1 | Out-String
+  $argv2 = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File") + $argv
+  $r = Invoke-ChildPs $argv2 300
   $sw.Stop()
-  return @{ ok = $true; rc = 0; ms = $sw.ElapsedMilliseconds; cmdline = $plan; output = $out.Trim() }
+  if ($r.timeout) {
+    Log ("指令 " + $item.id + " 超时强杀（300s）→ 回报失败")
+    return @{ ok = $false; timeout = $true; cmdline = $plan; output = $r.output }
+  }
+  return @{ ok = $true; rc = $r.rc; ms = $sw.ElapsedMilliseconds; cmdline = $plan; output = $r.output }
 }
 
 # ---- 单轮 -------------------------------------------------------------------
 function Step($conf, [ref]$offset, [ref]$regAt) {
+  $swStep = [System.Diagnostics.Stopwatch]::StartNew()
   # 注册（每 10 分钟刷新一次）
   if (((Get-Date) - $regAt.Value).TotalMinutes -ge 10) {
     $st = Get-LocalState $conf
@@ -146,6 +174,7 @@ function Step($conf, [ref]$offset, [ref]$regAt) {
   if ($ev.Count -gt 0) {
     [void](Invoke-Center $conf "POST" "/report" @{ node_id = $conf.nodeId; kind = "event"; data = @{ lines = $ev } })
   }
+  if ($swStep.Elapsed.TotalSeconds -gt 90) { Log ("慢阶段：状态采集耗时 " + [int]$swStep.Elapsed.TotalSeconds + "s") }
   # 拉令（长轮询）
   $p = Invoke-Center $conf "GET" ("/poll?node_id=" + $conf.nodeId) $null 35
   if ($p.ok -and $p.commands) {
