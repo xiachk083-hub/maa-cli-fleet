@@ -31,13 +31,21 @@ $Adb       = Join-Path $RootDir "bin\adb\adb.exe"
 $SshKey  = "~/.ssh/id_ed25519"
 $SshHost = "user@host"
 $FleetLocal = Join-Path $RootDir "config\fleet.local.json"
+$LocalMode = $false          # true = 本机模式：脚本就跑在目标机上，直连模拟器（不走 ssh/隧道）
+$MaaExeOverride = ""
+$MachinesOverride = $null
 if (Test-Path $FleetLocal) {
   try {
     $fl = Get-Content $FleetLocal -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($fl.sshKey)  { $SshKey  = [string]$fl.sshKey }
     if ($fl.sshHost) { $SshHost = [string]$fl.sshHost }
+    if ($fl.localMode) { $LocalMode = [bool]$fl.localMode }
+    if ($fl.adbPath)   { $Adb = [string]$fl.adbPath }
+    if ($fl.maaExe)    { $MaaExeOverride = [string]$fl.maaExe }
+    if ($fl.machines)  { $MachinesOverride = $fl.machines }
   } catch { }
 }
+if ($MaaExeOverride) { $MaaExe = $MaaExeOverride }
 $OpsLog    = Join-Path $OpsDir "rogue_cli_ops.log"
 # ── maa-cli 三目录全部重定向到项目内（config/data/cache）──────────────────
 $env:MAA_CONFIG_DIR = Join-Path $RootDir "config"
@@ -52,6 +60,13 @@ $Machines = @(
   [pscustomobject]@{ Name="l-5"; Emu="34"; State="state_l5"; Rogue="rogue_mizuki_l5";  Daily="daily_l5"; Local="16520" },
   [pscustomobject]@{ Name="l-7"; Emu="52"; State="state_l7"; Rogue="rogue_mizuki_l7";  Daily="daily_l7"; Local="16521" }
 )
+if ($MachinesOverride) {
+  # 机器表可被 config\fleet.local.json 的 machines 覆盖（本机模式/其它部署）
+  $Machines = @($MachinesOverride | ForEach-Object {
+    [pscustomobject]@{ Name=[string]$_.name; Emu=[string]$_.emu; State=[string]$_.state
+                       Rogue=[string]$_.rogue; Daily=[string]$_.daily; Local=[string]$_.local }
+  })
+}
 
 function Log($msg) {
   $line = "[" + (Get-Date -Format "MM-dd HH:mm:ss") + "] " + $msg
@@ -61,6 +76,11 @@ function Log($msg) {
 
 function Invoke-HostPs([string]$Script, [int]$TimeoutSec = 90) {
   $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
+  if ($LocalMode) {
+    # 本机模式：目标机就是本机，"主机侧"操作直接本地跑
+    $out = & powershell -NoProfile -EncodedCommand $b64 2>&1
+    return ($out | Out-String)
+  }
   $out = & ssh -i $SshKey -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=15 $SshHost "powershell -NoProfile -EncodedCommand $b64" 2>&1
   return ($out | Out-String)
 }
@@ -96,6 +116,11 @@ function Get-LogAgeMin($m) {
 }
 
 function Test-Tunnel($m) {
+  if ($LocalMode) {
+    # 本机模式：无隧道，判据 = adb 已连上该模拟器（device 状态）
+    $dev = (& $Adb devices 2>$null | Out-String)
+    return [bool]($dev -match ([regex]::Escape("127.0.0.1:$($m.Local)") + "\s+device"))
+  }
   return [bool](Get-NetTCPConnection -LocalPort $m.Local -State Listen -ErrorAction SilentlyContinue)
 }
 
@@ -121,9 +146,10 @@ function Show-Status {
 function Start-Task($m, $TaskName) {
   $env:MAA_STATE_DIR = Join-Path $StateRoot $m.State
   $outFile = Join-Path $LogDir ("{0}_{1}.out" -f $TaskName, (Get-Date -Format "MMdd_HHmmss"))
+  $workDir = if ($LocalMode) { Split-Path -Parent $MaaExe } else { Join-Path $RootDir "bin" }
   $p = Start-Process -FilePath $MaaExe `
     -ArgumentList '--batch','run',$TaskName,'-a',"127.0.0.1:$($m.Local)" `
-    -WorkingDirectory (Join-Path $RootDir "bin") -RedirectStandardOutput $outFile -WindowStyle Hidden -PassThru
+    -WorkingDirectory $workDir -RedirectStandardOutput $outFile -WindowStyle Hidden -PassThru
   Log ("{0} 已发车 pid={1} (任务 {2}, 日志 {3})" -f $m.Name, $p.Id, $TaskName, $outFile)
   return [pscustomobject]@{ Pid = $p.Id; Out = $outFile }
 }
@@ -372,15 +398,24 @@ Write-Output ('LAUNCH_PID=' + $r.ProcessId)
   }
   if (-not $hostPort) { Log ("[{0}] recover：模拟器未就绪，未接隧道" -f $m.Name); return }
   Log ("[{0}] recover：adb 端口 = {1}" -f $m.Name, $hostPort)
-  $old = Get-NetTCPConnection -LocalPort $m.Local -State Listen -ErrorAction SilentlyContinue
-  if ($old) { Stop-Process -Id $old.OwningProcess -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
-  Start-Process ssh -ArgumentList '-i',$SshKey,'-o','StrictHostKeyChecking=no','-N','-L',"127.0.0.1:$($m.Local):127.0.0.1:$hostPort",$SshHost -WindowStyle Hidden | Out-Null
-  Start-Sleep -Seconds 4
-  # 本机侧：自动 adb connect 到隧道口（本机 adb 也可能丢掉设备）
-  & $Adb connect "127.0.0.1:$($m.Local)" 2>$null | Out-Null
-  Start-Sleep -Seconds 2
-  $lboot = (& $Adb -s "127.0.0.1:$($m.Local)" shell getprop sys.boot_completed 2>$null | Out-String).Trim()
-  Log ("[{0}] recover：隧道本机 {1} -> 主机 {2}（本机 adb boot={3}）" -f $m.Name, $m.Local, $hostPort, $lboot)
+  if ($LocalMode) {
+    # 本机模式：无隧道；直接 adb connect（实测端口优先，防端口漂移）
+    if ($hostPort -ne $m.Local) { Log ("[{0}] recover：端口漂移 配置={1} 实测={2}（本次按实测走）" -f $m.Name, $m.Local, $hostPort); $m.Local = [string]$hostPort }
+    & $Adb connect "127.0.0.1:$($m.Local)" 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    $lboot = (& $Adb -s "127.0.0.1:$($m.Local)" shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+    Log ("[{0}] recover：本机直连 127.0.0.1:{1}（adb boot={2}）" -f $m.Name, $m.Local, $lboot)
+  } else {
+    $old = Get-NetTCPConnection -LocalPort $m.Local -State Listen -ErrorAction SilentlyContinue
+    if ($old) { Stop-Process -Id $old.OwningProcess -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+    Start-Process ssh -ArgumentList '-i',$SshKey,'-o','StrictHostKeyChecking=no','-N','-L',"127.0.0.1:$($m.Local):127.0.0.1:$hostPort",$SshHost -WindowStyle Hidden | Out-Null
+    Start-Sleep -Seconds 4
+    # 本机侧：自动 adb connect 到隧道口（本机 adb 也可能丢掉设备）
+    & $Adb connect "127.0.0.1:$($m.Local)" 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    $lboot = (& $Adb -s "127.0.0.1:$($m.Local)" shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+    Log ("[{0}] recover：隧道本机 {1} -> 主机 {2}（本机 adb boot={3}）" -f $m.Name, $m.Local, $hostPort, $lboot)
+  }
   Stop-MaaQuiet $m
   & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
   Start-Sleep -Seconds 2

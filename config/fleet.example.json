@@ -1,4 +1,51 @@
 {
+  "_说明": "机队本地配置模板。复制为 fleet.local.json 后填真值（该文件不入库）。",
+  "_模式": "默认隧道模式（本机经 ssh 隧道驱动）；设 localMode=true 则为本机模式（脚本就跑在目标机上，直连模拟器）",
+  "localMode": false,
   "sshHost": "Administrator@YOUR_HOST",
-  "sshKey": "%USERPROFILE%\.ssh\YOUR_KEY"
+  "sshKey": "%USERPROFILE%\\.ssh\\YOUR_KEY",
+  "adbPath": "<可选> 目标机上的 adb.exe 路径（本机模式常用）",
+  "maaExe": "<可选> maa-cli 可执行文件路径（本机模式常用，默认 <项目>\bin\\maa.exe）",
+  "machines": [
+    {
+      "name": "l-1",
+      "emu": "25",
+      "state": "state_l1",
+      "rogue": "rogue_sami_l1",
+      "daily": "daily_l1",
+      "local": "16522"
+    },
+    {
+      "name": "l-2",
+      "emu": "28",
+      "state": "state_l2",
+      "rogue": "rogue_sarkaz_l2",
+      "daily": "daily_l2",
+      "local": "16523"
+    },
+    {
+      "name": "l-4",
+      "emu": "9",
+      "state": "state_l4",
+      "rogue": "rogue_mizuki_l4",
+      "daily": "daily_l4",
+      "local": "16524"
+    },
+    {
+      "name": "l-5",
+      "emu": "34",
+      "state": "state_l5",
+      "rogue": "rogue_mizuki_l5",
+      "daily": "daily_l5",
+      "local": "16520"
+    },
+    {
+      "name": "l-7",
+      "emu": "52",
+      "state": "state_l7",
+      "rogue": "rogue_mizuki_l7",
+      "daily": "daily_l7",
+      "local": "16521"
+    }
+  ]
 }
