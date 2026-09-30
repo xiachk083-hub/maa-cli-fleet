@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # install_target.ps1 —— 在【目标机】上布点机端（node/executor）
 #
 # 做四件事：① 从 GitHub 拉最新项目包（免慢速 ssh 传输）
@@ -73,6 +73,33 @@ if (Test-Path $prof) {
     Set-Content $prof -Encoding UTF8
   Step "profile.adb_path = $AdbPath"
 }
+# 资源目录（maa-cli 按 MAA_DATA_DIR 找 lib/resource；缺失会报 "Resource directory not found!"）
+# 目标机通常已有现成的（安装过 maa-cli 的机器），用 junction 指过去，别复制几百 MB。
+$dataDir = Join-Path $ProjectDir "data"
+if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+$resCands = @(
+  (Join-Path $env:APPDATA "loong\maa\dataesource"),
+  (Join-Path $ProjectDir "coreesource"),
+  (Join-Path (Split-Path -Parent $MaaExe) "..\coreesource")
+)
+$libCands = @(
+  (Join-Path $env:APPDATA "loong\maa\data\lib"),
+  (Join-Path $ProjectDir "core\data\lib"),
+  (Join-Path (Split-Path -Parent $MaaExe) "..\core\data\lib")
+)
+foreach ($pair in @(@{n="resource";c=$resCands}, @{n="lib";c=$libCands})) {
+  $dst = Join-Path $dataDir $pair.n
+  if (Test-Path $dst) { Step ("data\" + $pair.n + " 已存在"); continue }
+  $src = $null
+  foreach ($c in $pair.c) { if ($c -and (Test-Path $c)) { $src = (Resolve-Path $c).Path; break } }
+  if ($src) {
+    cmd /c "mklink /J `"$dst`" `"$src`"" | Out-Null
+    Step ("data\" + $pair.n + " -> " + $src + "（junction）")
+  } else {
+    Step ("警告：找不到 " + $pair.n + " 的来源，maa 可能报 Resource directory not found")
+  }
+}
+
 $localConf = [pscustomobject]@{
   localMode = $true
   adbPath   = $AdbPath

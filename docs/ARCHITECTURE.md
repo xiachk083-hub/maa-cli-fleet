@@ -182,7 +182,12 @@ maa-cli-fleet/
 **当前控制权**：仍是 `local-desktop`（隧道模式）驱动全队；`host-mrfz0000` 只上报不改状态。
 **下一步（需批准，属"现场操作"）**：单台试迁——对某台机停掉本机 worker/隧道，改由主机机端驱动（daily/rogue），验证真结算后再逐台迁。
 
+**单台试迁（l-1，2026-10-01 06:08）**：停本机 worker+maa → 主机机端接管：
+中心视图 `host-mrfz0000 / l-1 = health OK / maa=pid33108 / 日志 0 分`，目标机 state 日志持续增长（真结算）。
+
 **坑（已踩，写死在这里）**：
+- 目标机 `<项目>\data` 必须有 **`lib` + `resource`**（maa-cli 按 `MAA_DATA_DIR` 找），否则 `Resource directory not found!` 秒退；
+  安装过 maa-cli 的机器用 **junction** 指到 `%APPDATA%\loong\maa\data\{lib,resource}`（不复制几百 MB）；
 - 目标机常驻进程必须用 **WMI `Win32_Process Create`** 拉起（`Start-Process` 的子进程随 ssh 会话结束被杀）；
 - `MuMuManager info -v all` **不含** `adb_port`，端口要 `info -v <idx>` 逐个查；
 - GitHub 仓库转公开后 codeload/archive 有**分钟级传播延迟**，期间 404（raw 先通）；

@@ -34,6 +34,9 @@
 ```
 
 要点：
+- **资源目录**：目标机的 `<项目>\data` 下必须有 `lib` 与 `resource`（maa-cli 按 `MAA_DATA_DIR` 找）。
+  安装过 maa-cli 的机器一般已有现成的（`%APPDATA%\loong\maa\data\{lib,resource}`）——
+  脚本会自动建 **junction** 指过去（别复制几百 MB）；缺了 maa 会报 `Resource directory not found!` 秒退。
 - **包走 GitHub**（`codeload.../zip/refs/heads/master`），不走慢速 ssh；
 - 解压**不会覆盖**本地配置（`config/fleet.local.json`、`node/conf.json` 都不在包里）；
 - 同机已有 maa-cli（如 `E:\MAA-CLI\bin\maa.exe`）会被**复用**，不搬大文件；
