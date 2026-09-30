@@ -65,6 +65,27 @@ function Invoke-Center($conf, [string]$Method, [string]$Path, $Body = $null, [in
   }
 }
 
+# ---- 确保 worker 在岗（开机自恢复：机端一起来就把 cycle/watch 拉起） ------------
+function Ensure-Workers($conf) {
+  if (-not $conf.workers) { return }
+  $opsDir = Join-Path (Split-Path -Parent $NodeDir) "ops"
+  foreach ($p in $conf.workers.PSObject.Properties) {
+    $machine = $p.Name
+    $kind = [string]$p.Value
+    if (($kind -ne "cycle") -and ($kind -ne "watch")) { continue }
+    $pidFile = Join-Path $opsDir ("{0}_{1}.pid" -f $kind, $machine)
+    $alive = $false
+    if (Test-Path $pidFile) {
+      $x = (Get-Content $pidFile -Raw).Trim()
+      if ($x -match '^\d+$' -and (Get-Process -Id ([int]$x) -ErrorAction SilentlyContinue)) { $alive = $true }
+    }
+    if ($alive) { continue }
+    Log ("worker 缺失 → 拉起 " + $kind + " " + $machine)
+    $r = Invoke-ChildPs @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $conf.opsScript, $kind, $machine) 120
+    if ($r.timeout) { Log ("worker 拉起超时：" + $machine) }
+  }
+}
+
 # ---- 子进程执行（文件重定向 + 硬超时；不走管道，防 EOF 死等） ----------------
 function Invoke-ChildPs([string[]]$Argv, [int]$TimeoutSec = 300) {
   $tag = [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -195,9 +216,13 @@ function Run-Node($conf) {
   if (Test-Path $conf.logFile) { $offset.Value = (Get-Item $conf.logFile).Length }
   $regAt = [ref][datetime]::MinValue
   Log ("机端启动：node=" + $conf.nodeId + " -> " + $conf.centerUrl + "（pid=" + $PID + "）")
+  Ensure-Workers $conf          # 开机自恢复：worker 不在就拉起（它们会自己把模拟器/任务拉起来）
+  $stepNo = 0
   while (-not (Test-Path $StopFile)) {
     try { Step $conf $offset $regAt }
     catch { Log ("step 异常：" + $_.Exception.Message) }
+    $stepNo++
+    if (($stepNo % 10) -eq 0) { Ensure-Workers $conf }   # 定期巡检 worker（≈每 5-8 分钟）
     Start-Sleep -Seconds ([int]$conf.heartbeatSec)
   }
   Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
