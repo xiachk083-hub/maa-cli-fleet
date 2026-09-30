@@ -27,8 +27,17 @@ $MaaExe    = Join-Path $RootDir "bin\maa.exe"
 $StateRoot = Join-Path $RootDir "data"
 $LogDir    = Join-Path $OpsDir "logs"
 $Adb       = Join-Path $RootDir "bin\adb\adb.exe"
-$SshKey    = "C:\Users\xiach\.ssh\maaorch_target"
-$SshHost   = "Administrator@100.79.173.69"
+# ── 连接信息从本地配置读取（config\fleet.local.json，不入库；模板 config\fleet.example.json）──
+$SshKey  = "~/.ssh/id_ed25519"
+$SshHost = "user@host"
+$FleetLocal = Join-Path $RootDir "config\fleet.local.json"
+if (Test-Path $FleetLocal) {
+  try {
+    $fl = Get-Content $FleetLocal -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($fl.sshKey)  { $SshKey  = [string]$fl.sshKey }
+    if ($fl.sshHost) { $SshHost = [string]$fl.sshHost }
+  } catch { }
+}
 $OpsLog    = Join-Path $OpsDir "rogue_cli_ops.log"
 # ── maa-cli 三目录全部重定向到项目内（config/data/cache）──────────────────
 $env:MAA_CONFIG_DIR = Join-Path $RootDir "config"

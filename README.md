@@ -1,78 +1,74 @@
-# maa-cli-fleet — 明日方舟 CLI 机队（日常 + 肉鸽）
+# maa-cli-fleet
 
-> 用 **maa-cli** 驱动明日方舟肉鸽机队：日常全链 + 肉鸽连刷，含**循环调度 / 卡死自愈 / 重启恢复**。
-> **完全自包含**：二进制、核心库、资源、配置、状态、日志、文档全部在本项目目录内，可整体搬移。
+用 **maa-cli** 管一支明日方舟「肉鸽机队」：**日常全链 + 肉鸽连刷**，带循环调度、卡死自愈、重启恢复。
 
----
+## 这是什么
 
-## 快速开始
+每台机器跑一条任务链；一个调度器决定「什么时候跑什么」：
 
-```powershell
-# 1) 体检（五台：maa 进程 / 日志年龄 / 隧道 / 游戏）
-.\ops\rogue_cli_ops.ps1 status
-
-# 2) 启动循环（后台 worker：肉鸽↔日常自动衔接 + 自愈）
-.\ops\rogue_cli_ops.ps1 cycle l-1     # 循环机（l-1/l-2/l-4/l-7）
-.\ops\rogue_cli_ops.ps1 watch l-5     # 只自愈机（l-5）
-
-# 3) 常用
-.\ops\rogue_cli_ops.ps1 daily  <机|all>     # 只跑日常（自动先关游戏）
-.\ops\rogue_cli_ops.ps1 rogue  <机|all>     # 只刷肉鸽
-.\ops\rogue_cli_ops.ps1 recover <机|all>    # 主机重启/掉线后恢复（启模拟器+隧道+发任务）
-.\ops\rogue_cli_ops.ps1 fix <机> [daily|rogue]   # 手动阶梯修复
-```
-
-**机队**：l-1(idx25/萨米) · l-2(idx28/萨卡兹) · l-4(idx9/水月) · l-5(idx34/水月) · l-7(idx52/水月)
-
----
+- **日常**：唤醒 → 刷理智(1-7，自动连战) → 公开招募 → 基建换班 → 信用购物 → 领取奖励
+- **肉鸽**：连刷（水月 / 萨米 / 萨卡兹…，`starts_count=99999`，不主动停）
+- **节奏**：肉鸽一直刷 → 理智快回满前插入一次日常（不浪费回复）→ 回肉鸽；约 16 小时一轮
+- **自愈**（每 5 分钟自检）：
+  - 进程没了 / 日志停转 / 连环报错 → 关游戏重开 + 重发当前功能
+  - 设备掉线 / 主机重启 → 启模拟器 + 自动查端口 + 两端 adb connect + 重建隧道 + 发任务
+  - 连续 3 次救不回 → 冷却 30 分钟再试（并写日志）
+- **两个功能独立**：日常与肉鸽是两条任务文件；每次启动前都会先关游戏，从干净状态拉起。
 
 ## 目录结构
 
 ```
-D:\maa-cli-fleet\
-├── README.md                    ← 本文件
-├── bin\
-│   ├── maa.exe                  maa-cli 0.7.5（入口）
-│   └── adb\adb.exe(+2 dll)      项目内 adb（连隧道设备用）
-├── core\                        MaaCore 运行库 + resource（789M，从既有可用安装拷入）
-├── config\                      =MAA_CONFIG_DIR
-│   ├── profiles\default.toml     连接配置（adb 路径/global_resource=YoStarJP）
-│   └── tasks\*.toml              任务文件（daily_l* / rogue_*）
-├── data\                        =MAA_DATA_DIR（运行状态，全部在项目内）
-│   ├── lib        → core        （目录联接，指向项目内 core）
-│   ├── resource   → core\resource
-│   ├── cache\                     =MAA_CACHE_DIR
-│   └── state_l1/l2/l4/l5/l7\     每台独立状态（debug\asst.log 为 worker 判据源）
-├── ops\                         运维目录
-│   ├── rogue_cli_ops.ps1        ★ 主脚本（自定位项目根，可整体搬移）
-│   ├── rogue_cli_ops.log         动作审计日志
-│   ├── dailydate_l-*.txt         每台"最后完成日常的游戏日"
-│   ├── cycle_*.pid/.stop         循环 worker 控制
-│   ├── watch_*.pid/.stop         看守 worker 控制
-│   └── logs\*.out                每次发车的 maa 输出（摘要/Explorations）
-├── tools\                       预留（bootstrap / 同步脚本位）
-└── docs\
-    ├── FLEET_OPS.md              运维手册（架构/命令/worker 逻辑/证据标签/回滚）
-    ├── maa-cli-daily-config.html 日常配置全参数
-    ├── maa-cli-roguelike-config.html
-    ├── maa-cli-multi-instance.html
-    └── emulator-precise-launch.html
+maa-cli-fleet/
+├── bin/          maa.exe + adb（不入库，见 bin/README.md）
+├── core/         MaaCore 运行库 + resource（不入库，见 core/README.md）
+├── config/       =MAA_CONFIG_DIR
+│   ├── profiles/    连接配置（adb 路径 / 全局资源）
+│   ├── tasks/       日常与肉鸽任务文件（TOML）
+│   ├── fleet.example.json   连接信息模板（ssh 主机/密钥）
+│   └── fleet.local.json     本地实配（不入库）
+├── data/         =MAA_DATA_DIR（运行状态/缓存，不入库）
+├── ops/          运维脚本与运行产物
+│   └── rogue_cli_ops.ps1    ★ 主脚本（调度 / 自愈 / 恢复）
+├── docs/         文档（运维手册、参数手册、循环图）
+└── tools/        装配脚本（预留）
 ```
 
-## 环境重定向（自包含的关键）
-脚本启动时自动设置（子进程继承）：
+## 快速开始
+
 ```powershell
-$env:MAA_CONFIG_DIR = <root>\config
-$env:MAA_DATA_DIR   = <root>\data
-$env:MAA_CACHE_DIR  = <root>\data\cache
+# 1) 就位：按 bin/README.md 与 core/README.md 放置 maa.exe / MaaCore+resource
+# 2) 连接信息：复制模板并填你的 ssh 目标
+copy config\fleet.example.json config\fleet.local.json
+# 3) 机表：编辑 ops\rogue_cli_ops.ps1 顶部 $Machines（名 / 实例 idx / 隧道口 / 任务名）
+# 4) 体检
+.\ops\rogue_cli_ops.ps1 status
+# 5) 开循环（后台 worker：肉鸽↔日常 + 自愈）
+.\ops\rogue_cli_ops.ps1 cycle l-1
 ```
-另有 `MAA_STATE_DIR=<root>\data\state_lX`（由脚本按台指定）。
 
-## 外部依赖（不在项目内的）
-- **主机 MRFZ-0000 (100.79.173.69)**：MuMu 模拟器（5 台）+ ssh 通道（key: `C:\Users\xiach\.ssh\maaorch_target`）
-- **ssh 隧道**（本机 → 主机）：16522→17184(l-1) · 16523→17280(l-2) · 16524→16672(l-4) · 16520→16452(l-5) · 16521→17028(l-7)
-- AUTO-MAS（主机 36163 API）：机队账号日常已停用（改走本系统）
+## 常用命令
 
-## 迁移说明
-- 原零散位置：`D:\MAA-CLI\`（脚本+日志）、`%APPDATA%\loong\maa\`（config/data）→ 已全部收敛到本项目。
-- 自 2026-10-01 起运行：**本项目为唯一事实源**；`D:\MAA-CLI` 与 `%APPDATA%\loong\maa` 仅剩历史残留（可清理）。
+| 命令 | 作用 |
+|---|---|
+| `status [机]` | 体检：maa 进程 / 日志年龄 / 隧道 / 游戏 |
+| `daily <机\|all>` | 只跑日常（自动先关游戏） |
+| `rogue <机\|all>` | 只刷肉鸽 |
+| `chain <机\|all>` | 一次性：日常 → 关游戏 → 肉鸽 |
+| `cycle <机> / cycle-stop` | 日常↔肉鸽循环（含自愈），后台 worker |
+| `watch <机> / watch-stop` | 只自愈，不跑日常 |
+| `recover <机\|all>` | 主机重启/掉线后恢复（启模拟器+隧道+发任务） |
+| `fix / fix1 / fix2 / fix3 <机> [daily\|rogue]` | 手动阶梯修复：重发 → 关游戏重开 → 重启模拟器 |
+
+## 文档
+
+- `docs/maa-cli-fleet-ops.md` — 运维手册（架构 / 命令 / worker 逻辑 / 回滚）
+- `docs/fleet-daily-cycle.html` — 24 小时循环图（理智曲线 / 日常节拍 / 自愈）
+- `docs/maa-cli-daily-config.html` — 日常任务全参数
+- `docs/maa-cli-roguelike-config.html` — 肉鸽参数
+- `docs/maa-cli-multi-instance.html` — 多实例隔离与配置机制
+- `docs/emulator-precise-launch.html` — 模拟器精准启动（MuMuManager）
+
+## 说明
+
+- 本仓库只含**脚本 + 配置 + 文档**；二进制（bin/）、核心库（core/）、运行状态（data/、ops 产物）通过 `.gitignore` 排除，按各目录 README 自行获取。
+- maa-cli 版本锚点：`0.7.5`（联网验证于 2026-10）。

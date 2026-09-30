@@ -26,7 +26,7 @@
 </head>
 <body>
 
-<h1>精准开启指定模拟器（MuMuManager）<span class="badge">实测：主 MRFZ-0000 · MuMu12 · 2026-09-30</span></h1>
+<h1>精准开启指定模拟器（MuMuManager）<span class="badge">实测：主 <HOST> · MuMu12 · 2026-09-30</span></h1>
 <div class="sub">目标：给任意实例（如 l-5=idx34、l-7=idx52）做「精准冷启 + 就绪验证」，全程只碰指定那台，不误动其他。</div>
 
 <div class="card">
@@ -44,14 +44,14 @@
   <h2>② 实例 ↔ 目标映射（本机实测 2026-09-30）</h2>
   <table>
     <tr><th>idx</th><th>MuMuManager name</th><th>脚本/账号</th><th>绑定槽位</th><th>目标主题</th></tr>
-    <tr><td><b>34</b></td><td>l-5-用户_99606616</td><td>l-5</td><td>MAA_9（日常定时9）</td><td>水月（Mizuki）</td></tr>
-    <tr><td><b>52</b></td><td>l-7-不要加班了</td><td>l-7</td><td>MAA_12（日常定时12）</td><td>水月（Mizuki）</td></tr>
+    <tr><td><b>34</b></td><td>l-5-<账号5></td><td>l-5</td><td>MAA_9（日常定时9）</td><td>水月（Mizuki）</td></tr>
+    <tr><td><b>52</b></td><td>l-7-<账号7></td><td>l-7</td><td>MAA_12（日常定时12）</td><td>水月（Mizuki）</td></tr>
     <tr><td>25</td><td>l-1…</td><td>l-1</td><td>MAA_1</td><td>Sami</td></tr>
     <tr><td>28</td><td>l-2…</td><td>l-2</td><td>MAA_2</td><td>Sarkaz</td></tr>
   </table>
   <div class="cmd"># 2026-09-30 10:4x 实测 info -v 输出要点
-idx34: is_process_started=false, name="l-5-用户_99606616"
-idx52: is_process_started=false, name="l-7-不要加班了"
+idx34: is_process_started=false, name="l-5-<账号5>"
+idx52: is_process_started=false, name="l-7-<账号7>"
 # 注意：此时主机日常队列正在跑 MAA_1~12（E:\MAA-Multi\MAA_*\MAA.exe），
 #       故暂不 launch，等日常清完/对应槽空闲再启动。</div>
 </div>

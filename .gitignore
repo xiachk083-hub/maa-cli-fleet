@@ -13,3 +13,4 @@ ops/dailydate_*.txt
 tmp/
 *.bak
 bin/debug/
+config/fleet.local.json

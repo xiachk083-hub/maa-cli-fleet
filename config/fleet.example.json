@@ -1,0 +1,4 @@
+{
+  "sshHost": "Administrator@YOUR_HOST",
+  "sshKey": "%USERPROFILE%\.ssh\YOUR_KEY"
+}

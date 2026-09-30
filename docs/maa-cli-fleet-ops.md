@@ -2,7 +2,7 @@
 
 # CLI 肉鸽机队运维手册（收敛版）
 
-> 建立：2026-10-01 · 维护人：lead（会话） · 机器：本机 DESKTOP-L1OEMR3 + 主机 MRFZ-0000(100.79.173.69)
+> 建立：2026-10-01 · 维护人：lead（会话） · 机器：本机 <LOCAL_PC> + 主机 <HOST>(<HOST_IP>)
 > 一句话：**用 maa-cli 接管肉鸽机队（l-1/l-2/l-4/l-5/l-7）的「日常 + 肉鸽」，替代 fz-maa/MAS，含循环调度与自愈。**
 
 ---
@@ -10,15 +10,15 @@
 ## 1. 架构总览
 
 ```
-┌─ 本机 DESKTOP-L1OEMR3 ─────────────────────────────────────────────┐
+┌─ 本机 <LOCAL_PC> ─────────────────────────────────────────────┐
 │  D:\maa-cli-fleetin\maa.exe        maa-cli 0.7.5（连设备→驱动游戏）      │
 │  D:\maa-cli-fleet\ops\rogue_cli_ops.ps1   运维脚本（调度/自愈/恢复，17 命令）    │
 │  worker（后台 PS 进程）：cycle ×4 + watch ×1                        │
 │  隧道 ssh -L：16522→17184(l-1) 16523→17280(l-2) 16524→16672(l-4)   │
 │              16520→16452(l-5) 16521→17028(l-7)                     │
 └───────────────┬────────────────────────────────────────────────────┘
-                │ ssh（key: C:\Users\xiach\.ssh\maaorch_target）
-┌───────────────▼─ 主机 MRFZ-0000 (100.79.173.69) ────────────────────┐
+                │ ssh（key: %USERPROFILE%\.ssh\<key>）
+┌───────────────▼─ 主机 <HOST> (<HOST_IP>) ────────────────────┐
 │  E:\MuMu Player 12\   5 台模拟器（vms\MuMuPlayer-12.0-{9,25,28,34,52}）│
 │      shell\adb.exe · nx_main\MuMuManager.exe                        │
 │  E:\AUTO-MAS\         生产 MAS（早/晚班）——机队 5 账号已 Status=false │
@@ -50,7 +50,7 @@ D:\maa-cli-fleet\ops\                                   ← 运维根
 │   └── rogue_sami_l1 · rogue_sarkaz_l2 · rogue_mizuki_l4/l5/l7.toml   肉鸽连刷（99999 局）
 └── data\state_l1/l2/l4/l5/l7\debug\asst.log  ★ 每台独立状态目录（日志隔离，worker 判据源）
 
-D:\1-2\MAAOrch\docs\
+<MAAOrch_REPO>\docs\
 ├── maa-cli-fleet-ops.md                      ← 本文（收敛手册）
 ├── maa-cli-daily-config.html                 日常配置全参数手册
 ├── maa-cli-roguelike-config.html             肉鸽参数速查
@@ -145,7 +145,7 @@ D:\1-2\MAAOrch\docs\
 3. **游戏弹窗类卡死**（如日服"データが更新されました。データ同期を行います"）：本次靠人工关游戏解决；worker 的 error-loop/no-task 判据理论上能兜住，但**未复现验证**。（`UNVERIFIED`）
 4. **l-5 无日常**：按早前指示"只刷肉鸽"。若要它清日常：给它 `cycle l-5`（daily_l5.toml 已备）。（待拍板）
 5. **隧道依赖本机 SSH 长连**：本机重启/断网后需重建（`recover` 或手工 ssh -L）。（`DEPLOYED` 现状）
-6. **l-4 的 AUTO-MAS 旧记录（Buling/官服档案）已停用**；现机为日服、实例号已漂到 idx9。恢复 MAS 侧如需另行确认。（`UNVERIFIED`）
+6. **l-4 的 AUTO-MAS 旧记录（<账号4>/官服档案）已停用**；现机为日服、实例号已漂到 idx9。恢复 MAS 侧如需另行确认。（`UNVERIFIED`）
 7. **理智读数依赖日志**：账户理智 > 上限（如 l-1 曾 333/165）时读数为 clamp 值，等待时间按满算（保守，不误伤）。（`IMPLEMENTED`）
 
 ---
@@ -155,7 +155,7 @@ D:\1-2\MAAOrch\docs\
 | 回到 | 操作 |
 |---|---|
 | 单台停 CLI 肉鸽 | `rogue_cli_ops.ps1 cycle-stop/watch-stop <机>` + 杀该机 maa 进程 |
-| 恢复该机 MAS 日常 | `python tools/auto_mas_toggle_user.py --name <账号> --enable`（l-1 酸酸酸酸 / l-2 舒7ucky / l-4 Buling / l-5 用户_99606616 / l-7 不要加班了） |
+| 恢复该机 MAS 日常 | `python tools/auto_mas_toggle_user.py --name <账号> --enable`（l-1 <账号1> / l-2 <账号2> / l-4 <账号4> / l-5 <账号5> / l-7 <账号7>） |
 | 恢复 fz-maa（GUI 肉鸽） | 主机：`schtasks /change /tn MAAOrch-StartOne-<idx> /enable`（idx：l-1=25 / l-2=28 / l-4=31(已失效) / l-5=34 / l-7=52） |
 | 全清 CLI 侧 | 杀 worker（cycle/watch-stop）+ 杀 maa 进程 + 关隧道（杀 ssh 进程） |
 
