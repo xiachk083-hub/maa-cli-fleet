@@ -53,23 +53,48 @@ $env:MAA_DATA_DIR   = Join-Path $RootDir "data"
 $env:MAA_CACHE_DIR  = Join-Path $RootDir "data\cache"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 
+# ── 服务器/包名：按机解析（配置优先 → 客户端映射 → adb 探测）────────────────
+$ClientPkg = @{
+  'Official' = 'com.hypergryph.arknights'
+  'Bilibili' = 'com.hypergryph.arknights.bilibili'
+  'YoStarEN' = 'com.YoStarEN.Arknights'
+  'YoStarJP' = 'com.YoStarJP.Arknights'
+  'YoStarKR' = 'com.YoStarKR.Arknights'
+  'txwy'     = 'com.wayi.arknights'
+}
+$script:PkgCache = @{}
+function Get-GamePkg($m) {
+  if ($m.Pkg) { return [string]$m.Pkg }
+  if ($script:PkgCache.ContainsKey($m.Name)) { return $script:PkgCache[$m.Name] }
+  $c = if ($m.Client -and $ClientPkg.ContainsKey([string]$m.Client)) { $ClientPkg[[string]$m.Client] } else { 'com.YoStarJP.Arknights' }
+  try {
+    $out = (& $Adb -s "127.0.0.1:$($m.Local)" shell "pm list packages" 2>$null | Out-String)
+    $hits = [regex]::Matches($out, "(?i)package:(com\.[a-z0-9._]*arknights[a-z0-9._]*)") | ForEach-Object { $_.Groups[1].Value }
+    if ($hits -and ($hits -notcontains $c) -and @($hits).Count -eq 1) { $c = $hits[0] }
+  } catch { }
+  $script:PkgCache[$m.Name] = $c
+  return $c
+}
+
 # 自愈巡检节奏（秒）：能检测到卡死/掉线就立刻治，不拖到下一轮；本机模式可更激进
 $HealthSec = 30
 if ($fl -and $fl.healthSec) { $HealthSec = [int]$fl.healthSec }
 
 $Machines = @(
-  [pscustomobject]@{ Name="l-1"; Emu="25"; State="state_l1"; Rogue="rogue_sami_l1";    Daily="daily_l1"; Local="16522"; Fallback="1-7" },
-  [pscustomobject]@{ Name="l-4"; Emu="9";  State="state_l4"; Rogue="rogue_mizuki_l4";  Daily="daily_l4"; Local="16524"; Fallback="1-7" },
-  [pscustomobject]@{ Name="l-2"; Emu="28"; State="state_l2"; Rogue="rogue_sarkaz_l2";  Daily="daily_l2"; Local="16523"; Fallback="1-7" },
-  [pscustomobject]@{ Name="l-5"; Emu="34"; State="state_l5"; Rogue="rogue_mizuki_l5";  Daily="daily_l5"; Local="16520"; Fallback="1-7" },
-  [pscustomobject]@{ Name="l-7"; Emu="52"; State="state_l7"; Rogue="rogue_mizuki_l7";  Daily="daily_l7"; Local="16521"; Fallback="1-7" }
+  [pscustomobject]@{ Name="l-1"; Emu="25"; State="state_l1"; Rogue="rogue_sami_l1";    Daily="daily_l1"; Local="16522"; Fallback="1-7"; Client="YoStarJP"; Pkg=""; Profile="" },
+  [pscustomobject]@{ Name="l-4"; Emu="9";  State="state_l4"; Rogue="rogue_mizuki_l4";  Daily="daily_l4"; Local="16524"; Fallback="1-7"; Client="YoStarJP"; Pkg=""; Profile="" },
+  [pscustomobject]@{ Name="l-2"; Emu="28"; State="state_l2"; Rogue="rogue_sarkaz_l2";  Daily="daily_l2"; Local="16523"; Fallback="1-7"; Client="YoStarJP"; Pkg=""; Profile="" },
+  [pscustomobject]@{ Name="l-5"; Emu="34"; State="state_l5"; Rogue="rogue_mizuki_l5";  Daily="daily_l5"; Local="16520"; Fallback="1-7"; Client="YoStarJP"; Pkg=""; Profile="" },
+  [pscustomobject]@{ Name="l-7"; Emu="52"; State="state_l7"; Rogue="rogue_mizuki_l7";  Daily="daily_l7"; Local="16521"; Fallback="1-7"; Client="YoStarJP"; Pkg=""; Profile="" }
 )
 if ($MachinesOverride) {
   # 机器表可被 config\fleet.local.json 的 machines 覆盖（本机模式/其它部署）
   $Machines = @($MachinesOverride | ForEach-Object {
     [pscustomobject]@{ Name=[string]$_.name; Emu=[string]$_.emu; State=[string]$_.state
                        Rogue=[string]$_.rogue; Daily=[string]$_.daily; Local=[string]$_.local
-                       Fallback=$(if ($_.fallback) { [string]$_.fallback } else { "1-7" }) }
+                       Fallback=$(if ($_.fallback) { [string]$_.fallback } else { "1-7" })
+                       Client=$(if ($_.client) { [string]$_.client } else { "YoStarJP" })
+                       Pkg=[string]$_.pkg; Profile=[string]$_.profile }
   })
 }
 
@@ -151,7 +176,7 @@ function Test-Tunnel($m) {
 }
 
 function Get-GamePid($m) {
-  $r = (& $Adb -s "127.0.0.1:$($m.Local)" shell pidof com.YoStarJP.Arknights 2>$null | Out-String).Trim()
+  $r = (& $Adb -s "127.0.0.1:$($m.Local)" shell ("pidof " + (Get-GamePkg $m)) 2>$null | Out-String).Trim()
   return $r
 }
 
@@ -173,8 +198,10 @@ function Start-Task($m, $TaskName) {
   $env:MAA_STATE_DIR = Join-Path $StateRoot $m.State
   $outFile = Join-Path $LogDir ("{0}_{1}.out" -f $TaskName, (Get-Date -Format "MMdd_HHmmss"))
   $workDir = if ($LocalMode) { Split-Path -Parent $MaaExe } else { Join-Path $RootDir "bin" }
+  $mArgs = @('--batch','run',$TaskName,'-a',"127.0.0.1:$($m.Local)")
+  if ($m.Profile) { $mArgs += @('-p', [string]$m.Profile) }
   $p = Start-Process -FilePath $MaaExe `
-    -ArgumentList '--batch','run',$TaskName,'-a',"127.0.0.1:$($m.Local)" `
+    -ArgumentList $mArgs `
     -WorkingDirectory $workDir -RedirectStandardOutput $outFile -WindowStyle Hidden -PassThru
   Log ("{0} 已发车 pid={1} (任务 {2}, 日志 {3})" -f $m.Name, $p.Id, $TaskName, $outFile)
   return [pscustomobject]@{ Pid = $p.Id; Out = $outFile }
@@ -254,7 +281,7 @@ function Watch-Once($m) {
   $task = Get-CurrentTask $m
   if (-not $task) { $task = $m.Rogue }
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Start-Sleep -Seconds 3
   Start-Task $m $task | Out-Null
   return $true
@@ -326,7 +353,7 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
   if (-not (Get-MaaProc $m)) {
     Log ("[{0}] cycle：当前无任务 → 先起肉鸽（{1}）" -f $m.Name, $m.Rogue)
     Stop-MaaQuiet $m
-    & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+    & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
     Start-Sleep -Seconds 2
     Start-Task $m $m.Rogue | Out-Null
   }
@@ -372,7 +399,7 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
         Log ("[{0}] cycle：开跑日常（{1}）" -f $m.Name, $taskName)
       }
       Stop-MaaQuiet $m
-      & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+      & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
       Start-Sleep -Seconds 2
       $r = Start-Task $m $taskName
       if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] cycle：日常超时（{1}），跳过本轮" -f $m.Name, $taskName); continue }
@@ -386,7 +413,7 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
       if ($n -ge 3) {
         Log ("[{0}] cycle：日常连续失败 3 次 → 冷却 60 分钟（先回肉鸽，稍后再试；若是活动关已关请改关卡）" -f $m.Name)
         Stop-MaaQuiet $m
-        & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+        & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
         Start-Sleep -Seconds 2
         Start-Task $m $m.Rogue | Out-Null
         $co = (Get-Date).AddMinutes(60)
@@ -400,7 +427,7 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
     # 回肉鸽
     Log ("[{0}] cycle：日常完成 → 关游戏 → 回肉鸽（{1}）" -f $m.Name, $m.Rogue)
     Stop-MaaQuiet $m
-    & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+    & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
     Start-Sleep -Seconds 2
     Start-Task $m $m.Rogue | Out-Null
   }
@@ -467,7 +494,7 @@ Write-Output ('LAUNCH_PID=' + $r.ProcessId)
     Log ("[{0}] recover：隧道本机 {1} -> 主机 {2}（本机 adb boot={3}）" -f $m.Name, $m.Local, $hostPort, $lboot)
   }
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Start-Sleep -Seconds 2
   Start-Task $m $m.Rogue | Out-Null
 }
@@ -492,14 +519,14 @@ function Watch-Worker($m) {
 function Chain-Worker($m) {
   Log ("[{0}] chain：先跑日常（{1}）" -f $m.Name, $m.Daily)
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Start-Sleep -Seconds 2
   $r = Start-Task $m $m.Daily
   if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] 日常超时未结束，chain 停止" -f $m.Name); return }
   if (Test-OutError $r.Out) {
     Log ("[{0}] 日常有错误 → 关游戏重试一次（按对应处理方式）" -f $m.Name)
     Stop-MaaQuiet $m
-    & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+    & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
     Start-Sleep -Seconds 3
     $r = Start-Task $m $m.Daily
     if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] 日常重试超时，chain 停止" -f $m.Name); return }
@@ -508,7 +535,7 @@ function Chain-Worker($m) {
   Set-DailyDone $m
   Log ("[{0}] 日常完成 → 关游戏 → 起肉鸽（{1}）" -f $m.Name, $m.Rogue)
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Start-Sleep -Seconds 2
   Start-Task $m $m.Rogue | Out-Null
   Log ("[{0}] chain 完成：肉鸽已起" -f $m.Name)
@@ -517,7 +544,7 @@ function Chain-Worker($m) {
 # 「日常」与「肉鸽」两个功能：启动前统一先关游戏（am force-stop），再拉起任务
 function Start-One($m, $TaskName) {
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Log ("{0} 已关游戏（启动 {1} 前）" -f $m.Name, $TaskName)
   Start-Sleep -Seconds 2
   Start-Task $m $TaskName | Out-Null
@@ -561,7 +588,7 @@ function Fix-Step1($m, $task) {
 function Fix-Step2($m, $task) {
   Log ("--- {0} 阶梯②：关游戏重开 + 重发（{1}）---" -f $m.Name, $task)
   Stop-MaaQuiet $m
-  & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+  & $Adb -s "127.0.0.1:$($m.Local)" shell ("am force-stop " + (Get-GamePkg $m)) 2>$null | Out-Null
   Log ("{0} 已关游戏" -f $m.Name)
   Start-Sleep -Seconds 3
   $t0 = Get-Date
