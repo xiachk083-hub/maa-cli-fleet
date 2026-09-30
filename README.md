@@ -68,6 +68,31 @@ copy config\fleet.example.json config\fleet.local.json
 - `docs/maa-cli-multi-instance.html` — 多实例隔离与配置机制
 - `docs/emulator-precise-launch.html` — 模拟器精准启动（MuMuManager）
 
+
+## MCP 网关（给 Hermes / Agent 直接调用）
+
+`tools/fleet_mcp.py` 是本项目的 **MCP server（stdio）**：把机队操作暴露成 11 个工具。
+
+- 只读：`fleet_status`（体检）、`fleet_log`（动作日志）
+- 写（**默认 dry-run，`apply=true` 才真执行**）：`fleet_daily` / `fleet_rogue` / `fleet_chain` /
+  `fleet_cycle` / `fleet_cycle_stop` / `fleet_watch` / `fleet_watch_stop` / `fleet_recover` / `fleet_fix`
+
+注册到 Hermes（`<hermes config>/config.yaml` 的 `mcp_servers:` 下）：
+
+```yaml
+  maa-cli-fleet:
+    command: <python.exe 路径>
+    args:
+      - <项目>	oolsleet_mcp.py
+    env:
+      PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
+    enabled: true
+```
+
+自检：`python tools/fleet_mcp.py --check`（依赖 + 脚本在位 + 只读冒烟）· `--list`（工具清单）。
+审计：每次调用落 `ops/mcp_audit.jsonl`；真动作同时进 `ops/rogue_cli_ops.log`。
+
 ## 说明
 
 - 本仓库只含**脚本 + 配置 + 文档**；二进制（bin/）、核心库（core/）、运行状态（data/、ops 产物）通过 `.gitignore` 排除，按各目录 README 自行获取。

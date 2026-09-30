@@ -1,5 +1,5 @@
 [connection]
-adb_path = "<MU_MU>/nx_main/adb.exe"
+adb_path = "D:/maa-cli-fleet/bin/adb/adb.exe"
 address = "127.0.0.1:16384"
 config = "General"
 

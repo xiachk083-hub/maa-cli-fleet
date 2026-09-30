@@ -1,0 +1,2 @@
+{"tool": "fleet_status", "args": {"machine": "all"}, "apply": false, "ts": "2026-10-01T05:26:28"}
+{"tool": "fleet_rogue", "args": {"machine": "l-1"}, "apply": false, "ts": "2026-10-01T05:26:38"}
