@@ -164,3 +164,26 @@ maa-cli-fleet/
 | 2026-10-01 | 认证 | **共享 token**（内网/Tailscale；后续需要再升级 mTLS） |
 | 2026-10-01 | 前端 | **暂缓**（后端 API 定型后再接） |
 | 2026-10-01 | 施工顺序 | **机端 → 后端**（前端留位）；现有"本机 worker + 隧道"保留为过渡/回滚位 |
+
+---
+
+## 9. 部署状态（实测，2026-10-01）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| ② 后端 center | **运行中** | 本机 `python center/center.py --port 8790`（pid 45484）；`GET /health` ✓；`center/state/token.txt` |
+| ① 机端 local-desktop | **运行中** | 本机 `nodeleet_node.ps1 run`；中心台账 `local-desktop` 5 台机状态齐全 |
+| ① 机端 host-mrfz0000 | **运行中（只读）** | 主机 `E:\maa-cli-fleet`（GitHub 拉包布点）；中心台账 `host-mrfz0000` 5 台机；本机模式 `直连=通`、game pid 与本地视角一致 |
+| 指令回路 | **TESTED** | `POST /command {cmd:"status",apply:true}` → 机端执行 9s → `POST /result ok=True` + 完整 status 输出 |
+| GitHub 分发通道 | **TESTED** | 主机 `Invoke-WebRequest codeload.../zip/refs/heads/master`：70KB / 0.9s（同夜 ssh 传输 ~50KB/s） |
+| ops 本机模式 | **TESTED** | 主机 `ops status` → `直连=通` + game pid 正确；本机隧道模式回归 `status` 仍全 OK |
+| ③ 前端 | 暂缓 | — |
+
+**当前控制权**：仍是 `local-desktop`（隧道模式）驱动全队；`host-mrfz0000` 只上报不改状态。
+**下一步（需批准，属"现场操作"）**：单台试迁——对某台机停掉本机 worker/隧道，改由主机机端驱动（daily/rogue），验证真结算后再逐台迁。
+
+**坑（已踩，写死在这里）**：
+- 目标机常驻进程必须用 **WMI `Win32_Process Create`** 拉起（`Start-Process` 的子进程随 ssh 会话结束被杀）；
+- `MuMuManager info -v all` **不含** `adb_port`，端口要 `info -v <idx>` 逐个查；
+- GitHub 仓库转公开后 codeload/archive 有**分钟级传播延迟**，期间 404（raw 先通）；
+- 私有仓 `codeload`/`archive` 一律 404（无鉴权路径）→ 要么转公开、要么带 token。
