@@ -53,6 +53,10 @@ $env:MAA_DATA_DIR   = Join-Path $RootDir "data"
 $env:MAA_CACHE_DIR  = Join-Path $RootDir "data\cache"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 
+# 自愈巡检节奏（秒）：能检测到卡死/掉线就立刻治，不拖到下一轮；本机模式可更激进
+$HealthSec = 30
+if ($fl -and $fl.healthSec) { $HealthSec = [int]$fl.healthSec }
+
 $Machines = @(
   [pscustomobject]@{ Name="l-1"; Emu="25"; State="state_l1"; Rogue="rogue_sami_l1";    Daily="daily_l1"; Local="16522" },
   [pscustomobject]@{ Name="l-4"; Emu="9";  State="state_l4"; Rogue="rogue_mizuki_l4";  Daily="daily_l4"; Local="16524" },
@@ -325,9 +329,9 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
     }
     $end = (Get-Date).AddMinutes($waitMin)
     while ((Get-Date) -lt $end -and -not (Test-Path $stopFile)) {
-      Start-Sleep -Seconds 300
+      Start-Sleep -Seconds $HealthSec
       if (Test-Path $stopFile) { break }
-      Watch-Once $m | Out-Null     # 睡觉期间也守着：进程没了/卡死 → 自动重发
+      Watch-Once $m | Out-Null     # 短节奏守着：进程没了/卡死 → 立刻重发（不等下一轮）
     }
     if (Test-Path $stopFile) { break }
     # 日常（带一次重试）
@@ -430,7 +434,7 @@ function Watch-Worker($m) {
   ("$PID") | Out-File -FilePath $pidFile -Encoding ascii
   Log ("[{0}] watch 启动（pid={1}；只自愈，不跑日常）" -f $m.Name, $PID)
   while (-not (Test-Path $stopFile)) {
-    Start-Sleep -Seconds 300
+    Start-Sleep -Seconds $HealthSec
     if (Test-Path $stopFile) { break }
     Watch-Once $m | Out-Null
   }
