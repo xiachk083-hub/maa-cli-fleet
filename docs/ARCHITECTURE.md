@@ -187,6 +187,14 @@ maa-cli-fleet/
   + 机端 `Ensure-Workers`（conf.workers 映射，启动时与每 10 步检查并拉起 cycle/watch）。实测：杀掉机端+全部 worker → boot 脚本 → 机端1+worker5 全自动回来。
 - 坑：**从 GitHub raw 下载的 `.ps1` 无 UTF-8 BOM** → PowerShell 5.1 按本地编码解析 → 中文字符串被读坏 → WMI 拉起返回 `rc=21`；仓库内 .ps1 已统一带 BOM，部署时下载后再强制转 BOM。
 
+
+**AUTO-MAS 退役（2026-10-01 07:40，实测）**：停掉 4 个 AUTO-MAS 进程 + 禁用 4 个自启/相关任务
+（`AUTO-MAS_AutoStart`、`AUTO-MAS-Boot-Backend`、`fz-maa-launch-one`、`fz-maa-start-one`）；
+我们的 5 个 maa 任务与 5 个 worker 未受影响（实测 OUR_MAA=5 / WORKERS=5，中心 5/5 OK）。
+**回滚**：重新启用上述任务 + 启动 `E:\AUTO-MAS\AUTO-MAS.exe` 即可（配置未动）。
+**遗留**：`DailyRestart0400` / `DailyRestart1900`（`shutdown /r /f /t 30`）仍为 Ready —— 04:00/19:00 定时重启；
+现在有开机自恢复链路兜底（重启后 ~2 分钟自动恢复），保留与否待定。
+
 **当前控制权**：仍是 `local-desktop`（隧道模式）驱动全队；`host-mrfz0000` 只上报不改状态。
 **下一步（需批准，属"现场操作"）**：单台试迁——对某台机停掉本机 worker/隧道，改由主机机端驱动（daily/rogue），验证真结算后再逐台迁。
 
