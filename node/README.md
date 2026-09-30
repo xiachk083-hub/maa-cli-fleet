@@ -59,6 +59,32 @@
 - `machines` 可覆盖机器表（本机模式下 `local` = 模拟器在该机上的 adb 端口）；
 - 默认（不设 localMode）仍是"本机经 ssh 隧道驱动"的老模式，两种模式同一份 ops 脚本。
 
+
+## 开机自恢复（目标机重启/蓝屏后无人介入）
+
+```
+开机/登录 → 计划任务 FleetNode-AutoStart → opsoot_node.ps1 → 机端
+                                                              ↓ Ensure-Workers
+                                        cycle/watch worker（缺失就拉起）
+                                                              ↓ Watch-Once 设备级自愈
+                                        模拟器 → adb connect → maa 任务 → 上报中心
+```
+
+- **计划任务**（照抄本机 AUTO-MAS 那套可用配置）：
+  `Administrator / Interactive / Highest / AtLogon` →
+  `powershell -NoProfile -ExecutionPolicy Bypass -File <项目>\opsoot_node.ps1`
+- `boot_node.ps1`：幂等；只保证"机端进程在"（已在跑就跳过），其余交给机端/worker。
+- 机端 `conf.json` 加 `workers` 映射（例：`{"l-1":"cycle",...,"l-5":"watch"}`）：
+  机端启动时 + 每 10 步检查 worker pid，不在岗就拉起。
+- **实测（2026-10-01）**：杀掉机端+全部 worker → 跑 boot 脚本 → 机端 1 + worker 5 全自动回来。
+- 蓝屏后实测：07:31:36 拉起 → 07:33:28 五台模拟器+任务全部恢复（约 2 分钟）。
+
+### 部署坑（重要）
+- **`.ps1` 必须带 UTF-8 BOM**：PowerShell 5.1 读无 BOM 文件按本地编码解析，中文字符串会被读坏
+  （症状：WMI 拉起机端返回 `rc=21 无效参数`）。仓库内 .ps1 已统一带 BOM；
+  从 GitHub raw 下载后建议再强制转一次 BOM：
+  `[IO.File]::WriteAllText($p, [IO.File]::ReadAllText($p,[Text.Encoding]::UTF8), (New-Object Text.UTF8Encoding($true)))`
+
 ## 当前部署（2026-10-01）
 
 | 机端 | 机器 | 中心 | 备注 |

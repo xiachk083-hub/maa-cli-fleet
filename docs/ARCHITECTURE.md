@@ -179,6 +179,14 @@ maa-cli-fleet/
 | ops 本机模式 | **TESTED** | 主机 `ops status` → `直连=通` + game pid 正确；本机隧道模式回归 `status` 仍全 OK |
 | ③ 前端 | 暂缓 | — |
 
+
+**主机崩溃与自恢复（2026-10-01 07:30，实测）**：
+- 崩因：**蓝屏 `0x0000000A (IRQL_NOT_LESS_OR_EQUAL)`**（驱动级 bugcheck，MiniDump `C:\Windows\Minidump\`）；非内存耗尽（64G 余 41G）。
+- 恢复：07:31:36 拉起机端+worker → 07:33:28 五台模拟器与任务全部恢复（worker 设备级自愈：启动模拟器→等 boot→adb connect→发任务）。
+- 补缺口：机端以前**不会随开机自启**（本次靠手工）→ 新增 `ops/boot_node.ps1` + 计划任务 `FleetNode-AutoStart`（Administrator/Interactive/Highest/AtLogon）
+  + 机端 `Ensure-Workers`（conf.workers 映射，启动时与每 10 步检查并拉起 cycle/watch）。实测：杀掉机端+全部 worker → boot 脚本 → 机端1+worker5 全自动回来。
+- 坑：**从 GitHub raw 下载的 `.ps1` 无 UTF-8 BOM** → PowerShell 5.1 按本地编码解析 → 中文字符串被读坏 → WMI 拉起返回 `rc=21`；仓库内 .ps1 已统一带 BOM，部署时下载后再强制转 BOM。
+
 **当前控制权**：仍是 `local-desktop`（隧道模式）驱动全队；`host-mrfz0000` 只上报不改状态。
 **下一步（需批准，属"现场操作"）**：单台试迁——对某台机停掉本机 worker/隧道，改由主机机端驱动（daily/rogue），验证真结算后再逐台迁。
 
