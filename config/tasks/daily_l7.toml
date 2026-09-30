@@ -1,4 +1,5 @@
 # daily_l7.toml — l-7 日服・纯日常（启动前先 am force-stop 关游戏）
+# 2026-10-01 接管 AUTO-MAS 配置：刷智关卡 = PA-6（当期活动关；失效时 worker 自动改刷兜底关 1-7）
 # 用法: maa run daily_l7 -a 127.0.0.1:<本机口>   （MAA_STATE_DIR=state_l7）
 # 顺序（用户定稿 2026-10-01）：唤醒 → 刷理智 → 公招 → 基建 → 信用 → 奖励
 
@@ -10,7 +11,7 @@ params = { client_type = "YoStarJP", start_game_enabled = true }
 [[tasks]]
 name = "刷理智"
 type = "Fight"
-params = { stage = "1-7", medicine = 0, stone = 0, series = 0 }
+params = { stage = "PA-6", medicine = 0, stone = 0, series = 0 }
 
 [[tasks]]
 name = "公开招募"

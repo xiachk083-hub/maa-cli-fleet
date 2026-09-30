@@ -58,17 +58,18 @@ $HealthSec = 30
 if ($fl -and $fl.healthSec) { $HealthSec = [int]$fl.healthSec }
 
 $Machines = @(
-  [pscustomobject]@{ Name="l-1"; Emu="25"; State="state_l1"; Rogue="rogue_sami_l1";    Daily="daily_l1"; Local="16522" },
-  [pscustomobject]@{ Name="l-4"; Emu="9";  State="state_l4"; Rogue="rogue_mizuki_l4";  Daily="daily_l4"; Local="16524" },
-  [pscustomobject]@{ Name="l-2"; Emu="28"; State="state_l2"; Rogue="rogue_sarkaz_l2";  Daily="daily_l2"; Local="16523" },
-  [pscustomobject]@{ Name="l-5"; Emu="34"; State="state_l5"; Rogue="rogue_mizuki_l5";  Daily="daily_l5"; Local="16520" },
-  [pscustomobject]@{ Name="l-7"; Emu="52"; State="state_l7"; Rogue="rogue_mizuki_l7";  Daily="daily_l7"; Local="16521" }
+  [pscustomobject]@{ Name="l-1"; Emu="25"; State="state_l1"; Rogue="rogue_sami_l1";    Daily="daily_l1"; Local="16522"; Fallback="1-7" },
+  [pscustomobject]@{ Name="l-4"; Emu="9";  State="state_l4"; Rogue="rogue_mizuki_l4";  Daily="daily_l4"; Local="16524"; Fallback="1-7" },
+  [pscustomobject]@{ Name="l-2"; Emu="28"; State="state_l2"; Rogue="rogue_sarkaz_l2";  Daily="daily_l2"; Local="16523"; Fallback="1-7" },
+  [pscustomobject]@{ Name="l-5"; Emu="34"; State="state_l5"; Rogue="rogue_mizuki_l5";  Daily="daily_l5"; Local="16520"; Fallback="1-7" },
+  [pscustomobject]@{ Name="l-7"; Emu="52"; State="state_l7"; Rogue="rogue_mizuki_l7";  Daily="daily_l7"; Local="16521"; Fallback="1-7" }
 )
 if ($MachinesOverride) {
   # 机器表可被 config\fleet.local.json 的 machines 覆盖（本机模式/其它部署）
   $Machines = @($MachinesOverride | ForEach-Object {
     [pscustomobject]@{ Name=[string]$_.name; Emu=[string]$_.emu; State=[string]$_.state
-                       Rogue=[string]$_.rogue; Daily=[string]$_.daily; Local=[string]$_.local }
+                       Rogue=[string]$_.rogue; Daily=[string]$_.daily; Local=[string]$_.local
+                       Fallback=$(if ($_.fallback) { [string]$_.fallback } else { "1-7" }) }
   })
 }
 
@@ -94,6 +95,18 @@ function Get-MaaProc($m) {
   $needle = [regex]::Escape("-a 127.0.0.1:" + $m.Local)
   Get-CimInstance Win32_Process -Filter "Name='maa.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -and ($_.CommandLine -match $needle) }
+}
+
+# 生成"兜底关卡"日常任务文件（对应 AUTO-MAS 的 Stage_Remain：主关卡不开/不可用 → 改刷兜底关）
+function New-FallbackTask($m, [string]$Stage) {
+  $src = Join-Path $RootDir ("config\tasks\{0}.toml" -f $m.Daily)
+  if (-not (Test-Path $src)) { return $null }
+  $body = Get-Content $src -Raw -Encoding UTF8
+  $body = [regex]::Replace($body, '(stage\s*=\s*)"[^"]*"', ('$1"' + $Stage + '"'))
+  $name = $m.Daily + "_fb"
+  $dst = Join-Path $RootDir ("config\tasks\{0}.toml" -f $name)
+  [System.IO.File]::WriteAllText($dst, $body, (New-Object System.Text.UTF8Encoding($false)))
+  return $name
 }
 
 # 事件级等待：有任务在跑就"等它退出"（进程退出=结束通知，零延迟唤醒）；没任务/超时则立即返回
@@ -343,22 +356,46 @@ function Cycle-Worker($m, [int]$MarginMin = 30) {
       Watch-Once $m | Out-Null              # 退出/卡死 → 立刻重发（不等下一轮）
     }
     if (Test-Path $stopFile) { break }
-    # 日常（带一次重试）
-    Log ("[{0}] cycle：开跑日常（{1}）" -f $m.Name, $m.Daily)
-    Stop-MaaQuiet $m
-    & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
-    Start-Sleep -Seconds 2
-    $r = Start-Task $m $m.Daily
-    if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] cycle：日常超时，跳过本轮" -f $m.Name); continue }
-    if (Test-OutError $r.Out) {
-      Log ("[{0}] cycle：日常报错 → 关游戏重试一次" -f $m.Name)
+    # 日常：① 原关卡 → ② 失败则换兜底关卡重跑 → ③ 再失败计数，连续 3 次冷却 60 分钟（期间跑肉鸽）
+    if (-not $script:DailyFailCount) { $script:DailyFailCount = @{} }
+    $dailyOk = $false
+    $stages = @($null)
+    if ($m.Fallback) { $stages += $m.Fallback }
+    foreach ($stage in $stages) {
+      if (Test-Path $stopFile) { break }
+      $taskName = $m.Daily
+      if ($stage) {
+        $taskName = New-FallbackTask $m $stage
+        if (-not $taskName) { break }
+        Log ("[{0}] cycle：日常改刷兜底关卡 {1}（{2}）" -f $m.Name, $stage, $taskName)
+      } else {
+        Log ("[{0}] cycle：开跑日常（{1}）" -f $m.Name, $taskName)
+      }
       Stop-MaaQuiet $m
       & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
-      Start-Sleep -Seconds 3
-      $r = Start-Task $m $m.Daily
-      if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] cycle：重试超时" -f $m.Name); continue }
-      if (Test-OutError $r.Out) { Log ("[{0}] cycle：重试仍报错（需 fix {1} daily）" -f $m.Name, $m.Name); continue }
+      Start-Sleep -Seconds 2
+      $r = Start-Task $m $taskName
+      if (-not (Wait-TaskEnd $m 90)) { Log ("[{0}] cycle：日常超时（{1}），跳过本轮" -f $m.Name, $taskName); continue }
+      if (-not (Test-OutError $r.Out)) { $dailyOk = $true; break }
+      Log ("[{0}] cycle：日常报错（{1}）" -f $m.Name, $taskName)
     }
+    if (-not $dailyOk) {
+      $script:DailyFailCount[$m.Name] = ([int]$script:DailyFailCount[$m.Name]) + 1
+      $n = [int]$script:DailyFailCount[$m.Name]
+      Log ("[{0}] cycle：日常本轮失败（第 {1} 次）" -f $m.Name, $n)
+      if ($n -ge 3) {
+        Log ("[{0}] cycle：日常连续失败 3 次 → 冷却 60 分钟（先回肉鸽，稍后再试；若是活动关已关请改关卡）" -f $m.Name)
+        Stop-MaaQuiet $m
+        & $Adb -s "127.0.0.1:$($m.Local)" shell "am force-stop com.YoStarJP.Arknights" 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+        Start-Task $m $m.Rogue | Out-Null
+        $co = (Get-Date).AddMinutes(60)
+        while ((Get-Date) -lt $co -and -not (Test-Path $stopFile)) { Start-Sleep -Seconds $HealthSec; Watch-Once $m | Out-Null }
+        $script:DailyFailCount[$m.Name] = 0
+      }
+      continue
+    }
+    $script:DailyFailCount[$m.Name] = 0
     Set-DailyDone $m
     # 回肉鸽
     Log ("[{0}] cycle：日常完成 → 关游戏 → 回肉鸽（{1}）" -f $m.Name, $m.Rogue)
