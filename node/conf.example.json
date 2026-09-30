@@ -1,0 +1,9 @@
+{
+  "nodeId": "host-mrfz0000",
+  "centerUrl": "http://<后端内部地址>:8790",
+  "token": "<center/state/token.txt 的内容>",
+  "opsScript": "<项目>\\ops\rogue_cli_ops.ps1",
+  "logFile": "<项目>\\ops\rogue_cli_ops.log",
+  "heartbeatSec": 30,
+  "stateSec": 60
+}

@@ -14,3 +14,11 @@ tmp/
 *.bak
 bin/debug/
 config/fleet.local.json
+
+# ── 机端/后端 运行态（不入库）────────────────────────
+node/conf.json
+node/node.log
+node/node.pid
+node/node.stop
+center/state/
+__pycache__/
