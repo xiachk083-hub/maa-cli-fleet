@@ -1,0 +1,31 @@
+# rogue_mizuki_weishenghail.toml — 本机 #0 日服 水月（Mizuki）肉鸽「维什戴尔·先手必胜」配置
+#
+# 用户指定（2026-09-30）：
+#   1) 不投资
+#   2) 借干员（含非好友助战）
+#   3) 开局干员 = 维什戴尔
+#   4) 开局招募组合 = 先手必胜（先锋+狙击+特种；含狙击，匹配维什戴尔）
+#   5) 难度等级 = 3（水月高难度禁 6 星，难度 3 仍可用 6 星/维什戴尔；用户 2026-09-30 指定）
+#   6) 挂机一直刷（starts_count 不设 = 无限探索直到资源/理智耗尽）
+#   7) mode=0 刷分
+#
+# 参考：maa-cli roguelike 子命令等价参数 + 主机 canary 的 TOML 结构。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike x1"
+type = "Roguelike"
+params = {
+  theme = "Mizuki",
+  mode = 0,
+  difficulty = 3,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}

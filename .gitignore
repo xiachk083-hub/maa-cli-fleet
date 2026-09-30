@@ -1,0 +1,15 @@
+# ── 大件与运行态（不入库）────────────────────────────
+core/*
+!core/README.md
+data/
+bin/*.exe
+bin/adb/*.exe
+bin/adb/*.dll
+ops/logs/
+ops/*.log
+ops/*.pid
+ops/*.stop
+ops/dailydate_*.txt
+tmp/
+*.bak
+bin/debug/

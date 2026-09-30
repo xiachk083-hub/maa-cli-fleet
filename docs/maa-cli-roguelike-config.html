@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>maa-cli 肉鸽配置速查（Roguelike）</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#1a2233; --card2:#141c2c; --line:#2b3a52;
+    --txt:#e6ebf5; --mut:#8fa3c0; --acc:#4ea1ff; --ok:#3fb27f; --warn:#e6b54a;
+    --code:#0d1117; --code-txt:#a9d1ff; --tbl-head:#202b40;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font:14px/1.7 "Segoe UI",system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);margin-bottom:20px;font-size:13px}
+  .badge{display:inline-block;background:#263449;color:#9db8dd;border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:12px;margin-left:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+  .card h2{font-size:15px;color:var(--acc);margin:0 0 12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--tbl-head);color:var(--mut);text-align:left;padding:8px 10px;border:1px solid var(--line);font-weight:600}
+  td{padding:8px 10px;border:1px solid var(--line);vertical-align:top}
+  tr:nth-child(even) td{background:var(--card2)}
+  code{background:var(--code);color:var(--code-txt);padding:1px 6px;border-radius:4px;font:12.5px Consolas,"Cascadia Mono",monospace}
+  .arg{color:#e6b54a;font-weight:600}
+  .req{color:var(--warn);font-weight:700}
+  .default{color:var(--ok)}
+  .list{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px;padding:0}
+  .list li{list-style:none;background:#263449;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:13px}
+  .theme{text-align:center}
+  .theme b{display:block;color:var(--acc);font-size:15px}
+  .theme span{color:var(--mut);font-size:12px}
+  ul.exp{margin:6px 0 0 18px;color:#c9d6ea}
+  li{line-height:1.8}
+  .foot{color:var(--mut);font-size:12px;margin-top:10px}
+  .cmdline{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;color:var(--code-txt);font:12.5px Consolas,monospace;margin:10px 0;white-space:pre-wrap;word-break:break-all}
+</style>
+</head>
+<body>
+
+<h1>maa-cli 肉鸽（Roguelike）配置速查<span class="badge">maa-cli v0.7.5 · MaaCore 6.18.0</span></h1>
+<div class="sub">来源：<code>maa.exe roguelike --help</code> 实测输出（本机 2026-09-30）。唯一必填参数＝<b>主题 THEME</b>，其余全部可省略（走默认值）。</div>
+
+<div class="card">
+  <h2>① 主题 THEME（唯一必填）</h2>
+  <ul class="list">
+    <li class="theme"><b>Phantom</b><span>傀影 · 无难度</span></li>
+    <li class="theme"><b>Mizuki</b><span>水月 · 骰子</span></li>
+    <li class="theme"><b>Sami</b><span>萨米 · 密文板/坍缩</span></li>
+    <li class="theme"><b>Sarkaz</b><span>萨卡兹 · 种子</span></li>
+    <li class="theme"><b>JieGarden</b><span>界园 · 新</span></li>
+  </ul>
+  <div class="cmdline">maa.exe roguelike &lt;THEME&gt; [选项…]</div>
+</div>
+
+<div class="card">
+  <h2>② 核心玩法参数</h2>
+  <table>
+    <tr><th>选项</th><th>可选值</th><th>默认</th><th>说明</th></tr>
+    <tr>
+      <td><code class="arg">--mode &lt;MODE&gt;</code></td>
+      <td>0 分数 / 1 源石锭 / 4 三层后 / 5 坍缩范式(仅Sami)<br>（2 已弃用 · 3 未实现）</td>
+      <td class="default">0</td>
+      <td>刷取方式。日常刷肉鸽最常见：<code>0</code>（刷等级）或 <code>1</code>（刷源石锭）。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">--squad &lt;SQUAD&gt;</code></td>
+      <td>中文分队名</td>
+      <td class="default">指挥分队</td>
+      <td>例如"后勤分队"、"突击战术分队"等你自定义分队。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">--core-char &lt;CORE&gt;</code></td>
+      <td>中文干员名</td>
+      <td>（不设）</td>
+      <td>开局核心干员，如"维什戴尔"。设定后序列会优先换到该干员开局。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">--roles &lt;ROLES&gt;</code></td>
+      <td>中文组合词</td>
+      <td class="default">先手必胜</td>
+      <td>开局招募组合，如"取长补短"、"先手必胜"。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">--starts-count &lt;N&gt;</code></td>
+      <td>数字 ≥1</td>
+      <td>不设＝永不停</td>
+      <td>探索次数上限。不填就一直刷到 resource 用尽；<code>1</code>＝只打一局。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">--difficulty &lt;D&gt;</code></td>
+      <td>数字（难度值）</td>
+      <td class="default">0</td>
+      <td>高于主题上限会被封顶。Phantom 无效。<code>2147483647</code> 通常＝MAX。</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>③ 肉鸽增强 / 限定主题参数</h2>
+  <table>
+    <tr><th>选项</th><th>主题</th><th>说明</th></tr>
+    <tr><td><code class="arg">--start-with-elite-two</code></td><td>通用</td><td>允许开局精二干员。</td></tr>
+    <tr><td><code class="arg">--only-start-with-elite-two</code></td><td>通用</td><td>只选精二开局（无精二则等待/刷）。</td></tr>
+    <tr><td><code class="arg">--stop-at-final-boss</code></td><td>通用</td><td>到最终Boss前停止探索（刷积分不碰Boss）。</td></tr>
+    <tr><td><code class="arg">--refresh-trader-with-dice</code></td><td><b>Mizuki</b> 水月</td><td>用骰子刷新商店，快速过商店回合。</td></tr>
+    <tr><td><code class="arg">--use-foldartal</code></td><td><b>Sami</b> 萨米</td><td>启用密文板机制（canary 曾遇"密文宣告"卡点，用此开关控制）。</td></tr>
+    <tr><td><code class="arg">-F / --start-foldartals &lt;LIST&gt;</code></td><td><b>Sami</b></td><td>开局携带的密文板列表（期望开局即有的）。</td></tr>
+    <tr><td><code class="arg">-P / --expected-collapsal-paradigms &lt;LIST&gt;</code></td><td><b>Sami</b></td><td>期望的坍缩范式（配合 mode 5）。</td></tr>
+    <tr><td><code class="arg">--start-with-seed</code></td><td><b>Sarkaz</b> 萨卡兹</td><td>种子开局（仅 mode 1 有效）。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>④ 投资（Investment）参数</h2>
+  <table>
+    <tr><th>选项</th><th>说明</th></tr>
+    <tr><td><code class="arg">--disable-investment</code></td><td>关闭投资（遇到投资不存钱）。挂机刷分常用，防止分被花掉。</td></tr>
+    <tr><td><code class="arg">--investment-with-more-score</code></td><td>开启后投资模式下也尽量拿分数（默认会跳过一些费时动作）。</td></tr>
+    <tr><td><code class="arg">--investments-count &lt;N&gt;</code></td><td>投资次数达到 N 次后停止探索。</td></tr>
+    <tr><td><code class="arg">--no-stop-when-investment-full</code></td><td>投资满后不停止（默认满了会停）。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⑤ 支援干员</h2>
+  <table>
+    <tr><th>选项</th><th>说明</th></tr>
+    <tr><td><code class="arg">--use-support</code></td><td>使用好友支援干员。</td></tr>
+    <tr><td><code class="arg">--use-nonfriend-support</code></td><td>使用非好友的公开支援干员。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⑥ 连接 / 设备参数</h2>
+  <table>
+    <tr><th>选项</th><th>说明</th></tr>
+    <tr>
+      <td><code class="arg">-a / --addr &lt;ADDR&gt;</code></td>
+      <td>设备 adb 序列号，如本机 <code>127.0.0.1:16384</code>（默认 <code>emulator-5554</code>）。<br>
+      也可在 <code>profiles/default.toml</code> 的 <code>[connection] address</code> 里配。</td>
+    </tr>
+    <tr>
+      <td><code class="arg">-p / --profile &lt;PROFILE&gt;</code></td>
+      <td>profile 文件名（<code>$MAA_CONFIG_DIR/profiles/&lt;name&gt;.toml</code>）。默认 <code>default.toml</code>，不存在则回退 <code>asst.toml</code>。</td>
+    </tr>
+    <tr><td><code class="arg">--user-resource</code></td><td>额外加载配置目录下自定义资源（覆盖同名官方资源）。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⑦ 运行控制</h2>
+  <table>
+    <tr><th>选项</th><th>说明</th></tr>
+    <tr><td><code class="arg">--dry-run</code></td><td>只解析配置、不连游戏。发车前自检用。</td></tr>
+    <tr><td><code class="arg">--batch</code></td><td>批处理模式，跳过交互式输入提示，用默认值。</td></tr>
+    <tr><td><code class="arg">--no-summary</code></td><td>结束时显示摘要（默认开）。</td></tr>
+    <tr><td><code class="arg">--no-auto-reconnect</code></td><td>断线不自动重连。</td></tr>
+    <tr><td><code class="arg">-v / -q</code></td><td>日志详细 / 安静（可重复叠加）。</td></tr>
+    <tr><td><code class="arg">--log-file[=PATH]</code></td><td>写日志到文件（不写则 stderr）；默认路径 <code>$(maa dir log)/…</code>。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⑧ 参考命令示例</h2>
+  <div class="cmdline"># 本机 #0（日服，水月主题）只打 1 局，默认分队：
+maa.exe roguelike Mizuki --mode 0 --starts-count 1 --difficulty 2147483647 -a 127.0.0.1:16384
+
+# 挂机刷等级（开始后不停），用指挥分队+精二支持：
+maa.exe roguelike Sami --mode 0 --core-char 维什戴尔 --use-support -a 127.0.0.1:16384
+
+# 自检不连游戏：
+maa.exe roguelike Sarkaz --dry-run -p default</div>
+  <ul class="exp">
+    <li>更完整的自定义（如多任务链、每日任务）可写在 <code>config/tasks/&lt;name&gt;.toml</code>，用 <code>maa run &lt;name&gt;</code> 执行。</li>
+    <li>设备/客户端（日服 YoStarJP）等全局设置放在 <code>profiles/default.toml</code>。</li>
+  </ul>
+</div>
+
+<div class="foot">本页由 maa-cli v0.7.5 <code>roguelike --help</code> 输出整理 · 命令/路径基于本机 2026-09-30 实测标注；具体可用值以当期客户端版本为准。</div>
+</body>
+</html>

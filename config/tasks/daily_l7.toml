@@ -1,0 +1,33 @@
+# daily_l7.toml — l-7 日服・纯日常（启动前先 am force-stop 关游戏）
+# 用法: maa run daily_l7 -a 127.0.0.1:<本机口>   （MAA_STATE_DIR=state_l7）
+# 顺序（用户定稿 2026-10-01）：唤醒 → 刷理智 → 公招 → 基建 → 信用 → 奖励
+
+[[tasks]]
+name = "开始唤醒"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "刷理智"
+type = "Fight"
+params = { stage = "1-7", medicine = 0, stone = 0, series = 0 }
+
+[[tasks]]
+name = "公开招募"
+type = "Recruit"
+params = { refresh = true, select = [4, 5], confirm = [3, 4], times = 4, skip_robot = true }
+
+[[tasks]]
+name = "基建换班"
+type = "Infrast"
+params = { facility = ["Mfg","Trade","Power","Control","Reception","Office","Dorm"], drones = "Money", threshold = 0.3, dorm_trust_enabled = true }
+
+[[tasks]]
+name = "信用购物"
+type = "Mall"
+params = { visit_friends = true, shopping = true, buy_first = ["招聘许可"], blacklist = ["加急许可","家具零件"] }
+
+[[tasks]]
+name = "领取奖励"
+type = "Award"
+params = { award = true, mail = true }

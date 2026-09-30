@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>maa-cli 多实例肉鸽 · 配置复用与隔离</title>
+<style>
+  :root{--bg:#0f1420;--card:#1a2233;--card2:#141c2c;--line:#2b3a52;--txt:#e6ebf5;
+    --mut:#8fa3c0;--acc:#4ea1ff;--ok:#3fb27f;--warn:#e6b54a;--bad:#e05d5d;
+    --code:#0d1117;--code-txt:#a9d1ff;--tbl-head:#202b40;}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font:14px/1.7 "Segoe UI",system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);margin-bottom:22px;font-size:13px}
+  .badge{display:inline-block;background:#263449;color:#9db8dd;border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:12px;margin-left:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+  .card h2{font-size:15px;color:var(--acc);margin:0 0 12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--tbl-head);color:var(--mut);text-align:left;padding:8px 10px;border:1px solid var(--line);font-weight:600}
+  td{padding:8px 10px;border:1px solid var(--line);vertical-align:top}
+  tr:nth-child(even) td{background:var(--card2)}
+  code{background:var(--code);color:var(--code-txt);padding:1px 6px;border-radius:4px;font:12.5px Consolas,"Cascadia Mono",monospace}
+  .cmdline{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;color:var(--code-txt);font:12.5px Consolas,monospace;margin:10px 0;white-space:pre-wrap;word-break:break-all}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .tag{display:inline-block;border-radius:4px;padding:0 6px;font-size:11px;border:1px solid}
+  .tag.req{border-color:var(--warn);color:var(--warn)}
+  .tag.core{border-color:var(--acc);color:var(--acc)}
+  ul{margin:6px 0 0 18px} li{line-height:1.8}
+  .flow{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:12px;margin:8px 0}
+  .flow b{color:var(--acc)}
+  .foot{color:var(--mut);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+
+<h1>maa-cli 多实例肉鸽 · 配置复用 / 隔离 / 集合器<span class="badge">基于 v0.7.5 官方文档 + 本机实测 + canary 并发实证</span></h1>
+<div class="sub">回答三个问题：①一个 CLI 能控几个模拟器 ②多次运行会不会互相污染 ③每次运行怎么带配置——以及"肉鸽配置集合器"该怎么建。</div>
+
+<div class="card">
+  <h2>① 一个 maa-cli 能控几台模拟器？</h2>
+  <p><b>运行层面：一次 <code>maa run/roguelike</code> 只驱动「一台」设备</b>（由 <code>-a 设备地址</code> 决定）。要同时控制 8 台 = 跑 8 个 maa-cli 进程，每个进程负责一台。</p>
+  <p>每个进程是独立、可并发的，但必须做三件事隔离（否则会互相污染）：</p>
+  <table>
+    <tr><th>维度</th><th>机制</th><th>结论</th></tr>
+    <tr><td><b>连接参数</b></td><td>每个进程用自己设备的 <code>-a 127.0.0.1:&lt;port&gt;</code> <span class="tag req">每次传入</span></td>
+      <td class="ok">天然隔离——不同端口就是不同模拟器</td></tr>
+    <tr><td><b>运行状态目录</b></td><td>每个进程设独立的 <code>MAA_STATE_DIR</code>（如 <code>state/idx0</code>、<code>state/idx34</code>）</td>
+      <td class="bad">不隔离 = asst.log / 资源缓存放一起，多进程并发时日志互串（canary 实证：同目录=后占者整窗丢日志）</td></tr>
+    <tr><td><b>任务/资源</b></td><td>任务文件 &lt;task&gt; 与 profile 按机器分别指定</td>
+      <td class="ok">文件只读加载，不互相覆盖</td></tr>
+  </table>
+  <div class="cmdline"># 示例：同时开 3 台
+MAA_STATE_DIR=D:\maa\state\idx0  maa.exe run rogue_mizuki -a 127.0.0.1:16384
+MAA_STATE_DIR=D:\maa\state\idx2  maa.exe run rogue_sami   -a 127.0.0.1:16448
+MAA_STATE_DIR=D:\maa\state\idx34 maa.exe run rogue_sarkaz -a 127.0.0.1:16452</div>
+</div>
+
+<div class="card">
+  <h2>② 多次运行会不会「配置污染」？会不会变回默认？</h2>
+  <p class="warn">关键结论：<b>maa-cli 每次运行都是「临时填入参数」进入核心，跑完不改配置文件</b>。它不是"用完重置成默认"，也不是"永久改配置"——是「无状态加载」模型。</p>
+  <div class="flow"><b>每次运行的完整流程（一次性生效，不写回）：</b><br>
+  1. 命令行/环境变量给出覆盖项（<code>-a</code> 设备、<code>-p</code> profile、<code>-v</code> 等）<br>
+  2. maa-cli 读 <code>profiles/&lt;name&gt;.toml</code> → 得到连接参数（adb/地址/resource 等）<br>
+  3. maa-cli 读 <code>tasks/&lt;name&gt;.toml</code> → 得到任务链（StartUp/Roguelike + 参数）<br>
+  4. 合入 core 参数（theme/mode/difficulty/core_char/roles/use_support/investment_enabled…）<br>
+  5. 启动 MaaCore 实例，连 <code>-a</code> 指定的那台设备 → 执行 → 结束。<br>
+  <b>没有「写回」步骤</b>：配置文件始终保持你上次编辑的状态；命令行 <code>-a</code>、<code>--difficulty</code> 等都是一次性覆盖。</div>
+  <table>
+    <tr><th>问</th><th>答</th></tr>
+    <tr><td>每次运行结束会变回默认吗？</td><td class="ok">不会。配置文件的当前内容就是下次运行的默认——你写进 <code>rogue_mizuki…toml</code> 的难度/阵容会一直在，直到你改文件。</td></tr>
+    <tr><td>会不会被别的实例污染？</td><td class="bad">只有一种真实污染源：<b>共用 <code>MAA_STATE_DIR</code></b>。多个进程同 state 目录 → asst.log 互串、缓存冲突。用 <code>state/每实例一目录</code> 即可根治。</td></tr>
+    <tr><td>多个任务文件会互相覆盖吗？</td><td class="ok">不会。每个 <code>tasks/*.toml</code> 是独立文件，各管各的。</td></tr>
+    <tr><td>资源/热更新会不会串？</td><td class="ok">资源（皮肤、活动等）按 <code>resource/global=YoStarJP</code> 加载，共享只读，绝大多数情况不冲突。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>③ 每次运行带什么配置？三层来源</h2>
+  <table>
+    <tr><th>层</th><th>来自哪</th><th>示例</th><th>作用范围</th></tr>
+    <tr><td><b>全局默认</b></td><td><code>profiles/&lt;default&gt;.toml</code></td><td>adb 路径、默认设备地址、global_resource</td><td>整台机器</td></tr>
+    <tr><td><b>任务文件</b></td><td><code>tasks/&lt;name&gt;.toml</code></td><td>theme/mode/difficulty/core_char/roles/investment…</td><td>单个任务</td></tr>
+    <tr><td><b>命令行覆盖</b></td><td><code>-a / -p / --mode / --difficulty …</code></td><td>本次跑哪台、覆盖难度</td><td><b>本次运行</b>（一次性）</td></tr>
+  </table>
+  <div class="flow">三者合并顺序：命令行覆盖 > 任务文件 > profile。跑完不写回，所以默认永远是你文件里的内容。
+  <br>要"换配置跑"，就是 <b>编辑对应 task 文件或命令行加参数</b>，别无他法——这既是机制也是优点。</div>
+</div>
+
+<div class="card">
+  <h2>④ 肉鸽「配置集合器」怎么建</h2>
+  <p>你想要的"集合器"本质上是一个 <b>多实例配置库 + 启动入口</b>。maa-cli 已给了骨架（profiles/ + tasks/ + MAA_STATE_DIR），需要补的是一层管理。推荐目录结构：</p>
+  <div class="cmdline">%APPDATA%\loong\maa\config\
+├── profiles\                   # 连接配置（可选：每台模拟器一个，含 adb/地址）
+│   └── default.toml
+├── tasks\                      # ★ 肉鸽任务文件（每套打法一个）
+│   ├── rogue_mizuki__wsh.toml     # 水月·维什戴尔阵容
+│   ├── rogue_sami__max.toml       # 萨米·MAX
+│   ├── rogue_sarkaz__max.toml     # 萨卡兹·MAX
+│   └── …
+└── state\                      # ★ MAA_STATE_DIR（每实例一目录，防污染）
+    ├── idx0\
+    ├── idx2\
+    └── idx34\</div>
+  <p>启动一个实例 = 固定组合「设备地址 + 任务文件 + 独立 state 目录」。可以用简单脚本做「集合器入口」：</p>
+  <div class="cmdline"># rogue-launch.ps1（概念示例）：按"实例名"拉起对应组合
+# 用法: .\rogue-launch.ps1 idx0 rogue_mizuki__wsh
+param($Device, $Task)
+$ports = @{ idx0="127.0.0.1:16384"; idx2="127.0.0.1:16448"; idx34="127.0.0.1:16452" }
+$env:MAA_STATE_DIR = "D:\MAA-CLI\state\$Device"     # 每实例独立 state
+& D:\MAA-CLI\dist\maa.exe --batch run $Task -a $ports[$Device] -p default</div>
+  <ul>
+    <li><b>多实例同时跑</b>：进程间靠「不同设备端口 + 不同 MAA_STATE_DIR」隔离，互不干扰。</li>
+    <li><b>换一套打法</b>：改/加 <code>tasks/*.toml</code>，不影响别的实例（因为 state、设备都已分开）。</li>
+    <li><b>回滚</b>：任务文件是纯文本，git 管理即可。</li>
+  </ul>
+  <p class="warn">注意：<b>Phantom 傀影</b> 主题 core 不支持难度参数（<code>Difficulty is not valid for Phantom theme, ignored</code>，dry-run 实测），所以傀影的"难度3"无法通过 CLI 表达，集合器里也只能按"忽略难度"或另用开局收藏品方式处理。</p>
+</div>
+
+<div class="card">
+  <h2>⑤ 一个 CLI 能控几个？—— 一句话总结</h2>
+  <p><b>一个进程 = 一台模拟器</b>；8 台 = 8 个进程（每进程独立 <code>-a</code> + <code>MAA_STATE_DIR</code>）。
+  <b>配置不会死后变成默认</b>，它只读加载、按「命令行 > 任务文件 > profile」合并，跑完不写回。
+  <b>唯一会污染的是共用 state 目录</b>，用「每实例一目录」根治。</p>
+</div>
+
+<div class="foot">来源：maa-cli v0.7.5 官方 docs/config.md（profiles/tasks/连接配置）+ 本机 dry-run/运行实测 + canary 并发日志隔离实证（t_e4f6648c / t_72ed337a）。</div>
+</body>
+</html>

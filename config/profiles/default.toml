@@ -1,0 +1,11 @@
+[connection]
+adb_path = "D:/Xiach/MuMuPlayer/nx_main/adb.exe"
+address = "127.0.0.1:16384"
+config = "General"
+
+[resource]
+global_resource = "YoStarJP"
+user_resource = false
+
+[instance_options]
+touch_mode = "MaaTouch"

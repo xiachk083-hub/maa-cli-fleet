@@ -1,0 +1,12 @@
+# rogue_mizuki_l4.toml — l-4 日服・水月肉鸽连刷（启动前先 am force-stop 关游戏）
+# 用法: maa run rogue_mizuki_l4 -a 127.0.0.1:16524   （MAA_STATE_DIR=state_l4）
+
+[[tasks]]
+name = "开始唤醒"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "肉鸽连刷"
+type = "Roguelike"
+params = { theme = "Mizuki", mode = 0, starts_count = 99999, difficulty = 3, core_char = "维什戴尔", roles = "先手必胜", use_support = true, use_nonfriend_support = true, investment_enabled = false }

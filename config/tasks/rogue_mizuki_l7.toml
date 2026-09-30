@@ -1,0 +1,23 @@
+# rogue_mizuki_l7.toml — l-7（主机 idx52/17028，日服）水月肉鸽 · 一直刷
+#
+# 用户 2026-09-30 指示：l-7 也刷水月。配置沿用水月标准：难度3 / 维什戴尔 / 先手必胜 / 借干员+非好友助战 / 不投资。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike 无限"
+type = "Roguelike"
+params = {
+  theme = "Mizuki",
+  mode = 0,
+  starts_count = 99999,
+  difficulty = 3,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}

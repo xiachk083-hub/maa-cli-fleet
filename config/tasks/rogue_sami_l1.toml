@@ -1,0 +1,24 @@
+# rogue_sami_l1.toml — l-1（主机 idx25/17184，日服）萨米肉鸽 · 一直刷
+#
+# 用户 2026-09-30 指示：l-1 刷萨米。配装沿用标准：维什戴尔/先手必胜/借干员+非好友助战/不投资；
+# 难度按用户定的"水月·傀影=3、其余=MAX" → Sami = MAX。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike 无限"
+type = "Roguelike"
+params = {
+  theme = "Sami",
+  mode = 0,
+  starts_count = 99999,
+  difficulty = 2147483647,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}

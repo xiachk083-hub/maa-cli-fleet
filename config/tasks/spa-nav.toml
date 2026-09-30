@@ -1,0 +1,4 @@
+# 和牛杂同一个入口（MiniGame@SPA@Begin）——日服覆盖里它已被改成"先跑我们的进场导航"
+[[tasks]]
+type = "Custom"
+params = { task_names = ["MiniGame@SPA@Begin"] }

@@ -1,0 +1,14 @@
+# rogue_mizuki.toml — 本机 #0 日服 水月（Mizuki）肉鸽单发
+# 参照主机 canary 的 rogue_once.toml（StartUp + Roguelike）：
+#   theme=Mizuki（水月）、mode=0(刷等级 Exp)、starts_count=1、difficulty=MAX
+# 客户端 YoStarJP（日服），global_resource 已在 profiles/default.toml = YoStarJP
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike x1"
+type = "Roguelike"
+params = { theme = "Mizuki", mode = 0, starts_count = 1, difficulty = 2147483647 }

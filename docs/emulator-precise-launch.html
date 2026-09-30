@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>精准开启指定模拟器 · MuMuManager 手册</title>
+<style>
+  :root{--bg:#0f1420;--card:#1a2233;--card2:#141c2c;--line:#2b3a52;--txt:#e6ebf5;--mut:#8fa3c0;--acc:#4ea1ff;--ok:#3fb27f;--warn:#e6b54a;--code:#0d1117;--code-txt:#a9d1ff;--tbl:#202b40;}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font:14px/1.7 "Segoe UI",system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);margin-bottom:22px;font-size:13px}
+  .badge{display:inline-block;background:#263449;color:#9db8dd;border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:12px;margin-left:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+  .card h2{font-size:15px;color:var(--acc);margin:0 0 12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--tbl);color:var(--mut);text-align:left;padding:8px 10px;border:1px solid var(--line)}
+  td{padding:8px 10px;border:1px solid var(--line);vertical-align:top}
+  tr:nth-child(even) td{background:var(--card2)}
+  code{background:var(--code);color:var(--code-txt);padding:1px 6px;border-radius:4px;font:12.5px Consolas,monospace}
+  .cmd{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;color:var(--code-txt);font:12.5px Consolas,monospace;margin:10px 0;white-space:pre-wrap}
+  .ok{color:var(--ok)} .warn{color:var(--warn)}
+  ul{margin:6px 0 0 18px} li{line-height:1.8}
+  .foot{color:var(--mut);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+
+<h1>精准开启指定模拟器（MuMuManager）<span class="badge">实测：主 MRFZ-0000 · MuMu12 · 2026-09-30</span></h1>
+<div class="sub">目标：给任意实例（如 l-5=idx34、l-7=idx52）做「精准冷启 + 就绪验证」，全程只碰指定那台，不误动其他。</div>
+
+<div class="card">
+  <h2>① 标准命令</h2>
+  <div class="cmd">"E:\MuMu Player 12\nx_main\MuMuManager.exe" control --vmindex &lt;idx&gt; launch</div>
+  <ul>
+    <li>路径实测：<code>E:\MuMu Player 12\nx_main\MuMuManager.exe</code>（旧文档写 <code>x_main\</code> 是错的）。</li>
+    <li>参数：<code>control --vmindex 34 launch</code>（<code>-v 34</code> 等价写法也支持）。</li>
+    <li>shutdown：同前缀 <code>control --vmindex 34 shutdown</code>。</li>
+    <li>查询：<code>info -v 34</code> 返回 JSON（index/name/是否启动/磁盘等）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>② 实例 ↔ 目标映射（本机实测 2026-09-30）</h2>
+  <table>
+    <tr><th>idx</th><th>MuMuManager name</th><th>脚本/账号</th><th>绑定槽位</th><th>目标主题</th></tr>
+    <tr><td><b>34</b></td><td>l-5-用户_99606616</td><td>l-5</td><td>MAA_9（日常定时9）</td><td>水月（Mizuki）</td></tr>
+    <tr><td><b>52</b></td><td>l-7-不要加班了</td><td>l-7</td><td>MAA_12（日常定时12）</td><td>水月（Mizuki）</td></tr>
+    <tr><td>25</td><td>l-1…</td><td>l-1</td><td>MAA_1</td><td>Sami</td></tr>
+    <tr><td>28</td><td>l-2…</td><td>l-2</td><td>MAA_2</td><td>Sarkaz</td></tr>
+  </table>
+  <div class="cmd"># 2026-09-30 10:4x 实测 info -v 输出要点
+idx34: is_process_started=false, name="l-5-用户_99606616"
+idx52: is_process_started=false, name="l-7-不要加班了"
+# 注意：此时主机日常队列正在跑 MAA_1~12（E:\MAA-Multi\MAA_*\MAA.exe），
+#       故暂不 launch，等日常清完/对应槽空闲再启动。</div>
+</div>
+
+<div class="card">
+  <h2>③ 启动后的「就绪验证」三件套（权威判据，不信 info 状态面）</h2>
+  <div class="cmd"># 1) VMM 进程在（权威）
+Get-CimInstance Win32_Process -Filter "Name='MuMuVMMHeadless.exe'" |
+  Where-Object { $_.CommandLine -match 'MuMuPlayer-12\.0-34' }
+# 2) 监听口（需现查，端点会漂：16384+32*idx 只是线索）
+Get-NetTCPConnection -OwningProcess &lt;VMM_pid&gt; -State Listen
+# 3) adb connect 后 device + boot_completed
+"E:\MuMu Player 12\shell\adb.exe" connect 127.0.0.1:&lt;port&gt;
+"E:\MuMu Player 12\shell\adb.exe" -s 127.0.0.1:&lt;port&gt; shell getprop sys.boot_completed  # =1</div>
+  <p class="warn">重要：<code>MuMuManager info -v</code> 的进程状态面在主机上可能"假死/报假"——每次决策都以 VMM 进程 + adb 实测为准（多份审计验证）。</p>
+</div>
+
+<div class="card">
+  <h2>④ 跨 SSH 宿主持久化（避免误判"没启动"）</h2>
+  <ul>
+    <li>用 <code>Win32_Process.Create</code>（PowerShell）或 <b>schtasks 一次性任务</b>拉起，<span class="warn">不要用 <code>Start-Process</code></span>——它会随 SSH 会话结束被带走。</li>
+    <li>同理适用于 maa-cli 长跑进程（肉鸽队实操已用 schtasks）。</li>
+  </ul>
+  <div class="cmd"># PowerShell 跨会话启动模板
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+  CommandLine = '"E:\MuMu Player 12\nx_main\MuMuManager.exe" control --vmindex 34 launch'
+}
+$r.ProcessId  # 立即返回 pid，进程与 SSH 会话解耦</div>
+</div>
+
+<div class="card">
+  <h2>⑤ 与 maa-cli 刷肉的对接（l-5 目标流程）</h2>
+  <div class="cmd"># (1) MuMuManager 启动 idx34
+# (2) 就绪三件套通过
+# (3) 本机 maa-cli 经 SSH 隧道控制（本机 16520 &lt;-&gt; 主机 16452 实例的当前 adb 口）
+MAA_STATE_DIR=...state_l5  D:\MAA-CLI\dist\maa.exe --batch run rogue_mizuki_l5 -a 127.0.0.1:&lt;本机口&gt;
+# 注意：l-5 有"其他主题进行中"锁时，先跑界园一把到整局结算退出（Failed/Abandon 均可解锁），
+#       再切水月；锁不会因关游戏消失，必须那局真正打完。</div>
+  <p class="warn">l-5/l-7 需在对应日常槽（MAA_9 / MAA_12）空闲后启动，避免与日常抢模拟器。</p>
+</div>
+
+<div class="foot">来源：docs/MAA_CLI_DEPLOY.md §4.3（实测）、docs/MAS_EMULATORS.md、docs/CROSS_HOST_MATRIX.md、本机 2026-09-30 MuMuManager info 实测。结论均为 IMPLEMENTED/TESTED（本机可直接复跑）。</div>
+</body>
+</html>

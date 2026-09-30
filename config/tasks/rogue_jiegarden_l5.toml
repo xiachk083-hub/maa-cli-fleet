@@ -1,0 +1,24 @@
+# rogue_jiegarden_l5.toml — l-5（主机 idx34 / 16452，日服）界园肉鸽
+#
+# 目标机器：l-5 = MRFZ-0000 的 idx34（127.0.0.1:16452，日服 YoStarJP）
+# 发车方式：本机 maa-cli 经 ssh 隧道连主机 16452；MAA_STATE_DIR 独立。
+#
+# 参考 l-5 fz-maa 实配（可查 fz-maa l\l-5 gui 配置）：
+#   Theme=JieGarden、Difficulty=MAX、FindPlaytimeTarget=Ling（令）、StartCount=99999
+# 用户 2026-09-30 指示：给 l-5 刷肉鸽（先按 MAX 难度）
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike x1"
+type = "Roguelike"
+params = {
+  theme = "JieGarden",
+  mode = 0,
+  difficulty = 2147483647,
+  core_char = "令",
+  starts_count = 1,
+}

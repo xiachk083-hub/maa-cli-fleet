@@ -1,0 +1,24 @@
+# rogue_mizuki_l5.toml — l-5（主机 idx34/16452，日服）水月肉鸽 · 目标主题（解锁后一直刷）
+#
+# 用户 2026-09-30 指示：l-5 刷水月；先逐主题试用一把解锁干净状态，成功切到此目标一直刷。
+# 水月配置沿用既定标准：难度3（高难度禁6星，3可用6星/维什戴尔）、维什戴尔、先手必胜、借干员+非好友助战、不投资。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike 无限"
+type = "Roguelike"
+params = {
+  theme = "Mizuki",
+  mode = 0,
+  starts_count = 99999,
+  difficulty = 3,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}
