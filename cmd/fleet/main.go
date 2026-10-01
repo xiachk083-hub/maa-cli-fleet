@@ -67,15 +67,44 @@ func main() {
 			os.Exit(1)
 		}
 		if v := flagValue(args, "-enqueue", ""); v != "" {
-			if err := r.Enqueue(v); err != nil {
+			if err := runner.QueueOp(cfg, "enqueue", v); err != nil {
 				fmt.Fprintln(os.Stderr, "入队失败：", err)
+				os.Exit(1)
+			}
+			fmt.Println("已落入 queue.in（runner 30 秒内合并生效）")
+			return
+		}
+		if v := flagValue(args, "-cancel", ""); v != "" {
+			if err := runner.QueueOp(cfg, "cancel", v); err != nil {
+				fmt.Fprintln(os.Stderr, "取消失败：", err)
 				os.Exit(1)
 			}
 			return
 		}
-		if v := flagValue(args, "-cancel", ""); v != "" {
-			if err := r.Cancel(v); err != nil {
-				fmt.Fprintln(os.Stderr, "取消失败：", err)
+		if v := flagValue(args, "-reset", ""); v != "" {
+			if err := runner.QueueOp(cfg, "reset", v); err != nil {
+				fmt.Fprintln(os.Stderr, "重置失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if v := flagValue(args, "-now", ""); v != "" {
+			if err := runner.QueueOp(cfg, "now", v); err != nil {
+				fmt.Fprintln(os.Stderr, "失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if v := flagValue(args, "-disable", ""); v != "" {
+			if err := runner.QueueOp(cfg, "disable", v); err != nil {
+				fmt.Fprintln(os.Stderr, "失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if v := flagValue(args, "-enable", ""); v != "" {
+			if err := runner.QueueOp(cfg, "enable", v); err != nil {
+				fmt.Fprintln(os.Stderr, "失败：", err)
 				os.Exit(1)
 			}
 			return

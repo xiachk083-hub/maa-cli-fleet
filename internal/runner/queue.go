@@ -1,7 +1,14 @@
 package runner
 
 import (
+	"fmt"
+	"encoding/json"
+	"github.com/xiachk083-hub/maa-cli-fleet/internal/model"
+	"log"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,7 +33,7 @@ type Task struct {
 	Ended     string `json:"endedAt,omitempty"`
 	Note      string `json:"note,omitempty"`
 	OutFile   string `json:"outFile,omitempty"`
-	Priority  int    `json:"priority"` // 越小越先跑
+	Priority  int    `json:"priority"`            // 越小越先跑
 	NextDue   string `json:"nextDueAt,omitempty"` // 理智快满的时间点（自循环用）
 	CostSec   int    `json:"costSec,omitempty"`   // 上次实际耗时（排班用）
 	PlanAt    string `json:"planAt,omitempty"`    // 前瞻排班给它的执行时刻
@@ -50,3 +57,147 @@ func sortQueue(ts []*Task) {
 }
 
 func nowStamp() string { return time.Now().Format("2006-01-02 15:04:05") }
+
+// ---- 热改：queue.in（CLI 落请求 → runner 每轮合并）-----------------------------
+//
+// 解决"状态在 runner 内存里，外部改文件会被覆盖"的问题。
+// 每行一个 JSON 请求：
+//
+//	{"op":"enqueue","kind":"daily","account":"a07"}   现在就跑（插队）
+//	{"op":"cancel","task":"daily:a07"}                取消（今天不再跑）
+//	{"op":"reset","task":"daily:a07"}                 失败重置（attempts=0 → 重新排队）
+//	{"op":"now","task":"daily:a07"}                   把排班时间提到现在
+//	{"op":"disable","account":"a07"} / {"op":"enable","account":"a07"}
+type Op struct {
+	Op      string `json:"op"`
+	Kind    string `json:"kind,omitempty"`
+	Account string `json:"account,omitempty"`
+	Task    string `json:"task,omitempty"`
+}
+
+// ApplyOps 读取 queue.in 并合并到运行中的状态（由 Tick 调用）。
+func (r *Runner) ApplyOps() int {
+	path := filepath.Join(filepath.Dir(r.cfg.StateFile), "queue.in")
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var op Op
+		if json.Unmarshal([]byte(line), &op) != nil {
+			continue
+		}
+		if r.applyOp(op) {
+			n++
+		}
+	}
+	_ = os.Remove(path)
+	if n > 0 {
+		log.Printf("[queue.in] 应用了 %d 个热改请求", n)
+	}
+	return n
+}
+
+func (r *Runner) applyOp(op Op) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := op.Task
+	if key == "" && op.Account != "" {
+		k := op.Kind
+		if k == "" {
+			k = "daily"
+		}
+		key = k + ":" + op.Account
+	}
+	switch op.Op {
+	case "enqueue", "now":
+		t := r.state.Tasks[key]
+		if t == nil {
+			acc := r.findAccountLocked(strings.SplitN(key, ":", 2)[1])
+			if acc == nil {
+				return false
+			}
+			file := acc.Daily
+			if strings.HasPrefix(key, "ann:") {
+				file = acc.AnnTask
+			}
+			t = &Task{Key: key, AccountID: acc.ID, Kind: strings.SplitN(key, ":", 2)[0], File: file}
+			r.state.Tasks[key] = t
+		}
+		t.State = "queued"
+		t.Attempts = 0
+		t.PlanAt = ""
+		t.Priority = 5
+		t.Day = gameDay()
+		t.Enqueued = nowStamp()
+		t.Note = "热改：现在就跑"
+		return true
+	case "cancel":
+		if t := r.state.Tasks[key]; t != nil {
+			t.State = "failed"
+			t.Note = "热改：取消"
+			return true
+		}
+	case "reset":
+		if t := r.state.Tasks[key]; t != nil {
+			t.State = "queued"
+			t.Attempts = 0
+			t.PlanAt = ""
+			t.Day = gameDay()
+			t.Note = "热改：重置重排"
+			return true
+		}
+	case "disable", "enable":
+		if a := r.findAccountLocked(op.Account); a != nil {
+			a.Enabled = op.Op == "enable"
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runner) findAccountLocked(id string) *model.Account {
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			return &r.accounts[i]
+		}
+	}
+	return nil
+}
+
+// QueueOp 由 CLI 调用：把热改请求追加到 queue.in（不碰 state.json，避免被内存覆盖）。
+func QueueOp(stateFile, op, arg string) error {
+	path := filepath.Join(filepath.Dir(stateFile), "queue.in")
+	var req Op
+	req.Op = op
+	switch op {
+	case "enqueue", "now":
+		parts := strings.SplitN(arg, ":", 2)
+		if len(parts) == 2 {
+			req.Kind, req.Account = parts[0], parts[1]
+			req.Task = arg
+		} else {
+			req.Account = arg
+			req.Kind = "daily"
+		}
+	case "cancel", "reset":
+		req.Task = arg
+	case "disable", "enable":
+		req.Account = arg
+	default:
+		return fmt.Errorf("未知操作 %s", op)
+	}
+	b, _ := json.Marshal(req)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(b, 0x0A))
+	return err
+}

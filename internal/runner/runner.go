@@ -24,21 +24,21 @@ import (
 
 // Config 是 runner/runner.json。
 type Config struct {
-	Slots           int    `json:"slots"`
-	MumuManager     string `json:"mumuManager"`
-	AdbExe          string `json:"adbExe"`
-	MaaExe          string `json:"maaExe"`
-	ConfigDir       string `json:"configDir"`
-	DataRoot        string `json:"stateRoot"`
-	CacheDir        string `json:"cacheDir"`
-	LogDir          string `json:"logDir"`
-	LogFile         string `json:"logFile"`
-	AccountsFile    string `json:"accountsFile"`
-	StateFile       string `json:"stateFile"`
-	StopFile        string `json:"stopFile"`
-	CenterURL       string `json:"centerUrl"`
-	CenterTokenFile string `json:"centerTokenFile"`
-	NodeID          string `json:"nodeId"`
+	Slots           int      `json:"slots"`
+	MumuManager     string   `json:"mumuManager"`
+	AdbExe          string   `json:"adbExe"`
+	MaaExe          string   `json:"maaExe"`
+	ConfigDir       string   `json:"configDir"`
+	DataRoot        string   `json:"stateRoot"`
+	CacheDir        string   `json:"cacheDir"`
+	LogDir          string   `json:"logDir"`
+	LogFile         string   `json:"logFile"`
+	AccountsFile    string   `json:"accountsFile"`
+	StateFile       string   `json:"stateFile"`
+	StopFile        string   `json:"stopFile"`
+	CenterURL       string   `json:"centerUrl"`
+	CenterTokenFile string   `json:"centerTokenFile"`
+	NodeID          string   `json:"nodeId"`
 	TaskTimeoutMin  int      `json:"taskTimeoutMin"`
 	KeepEmus        []string `json:"keepEmus"`
 	MaxConcurrent   int      `json:"maxConcurrent"`
@@ -356,6 +356,7 @@ func (r *Runner) drain(timeout time.Duration) {
 
 // Tick：补队列 → 填并发位。
 func (r *Runner) Tick() {
+	r.ApplyOps() // 先合并外部热改请求（queue.in）
 	added := r.syncQueue()
 	r.saveState()
 
