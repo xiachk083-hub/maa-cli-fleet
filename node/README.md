@@ -78,6 +78,9 @@
   机端启动时 + 每 10 步检查 worker pid，不在岗就拉起。
 - **实测（2026-10-01）**：杀掉机端+全部 worker → 跑 boot 脚本 → 机端 1 + worker 5 全自动回来。
 - 蓝屏后实测：07:31:36 拉起 → 07:33:28 五台模拟器+任务全部恢复（约 2 分钟）。
+- **看门狗（防机端自身意外退出，2026-10-02 加）**：计划任务 `FleetNode-Watchdog`——每 10 分钟、无限重复、`IgnoreNew`，跑同一个 `boot_node.ps1`（幂等）。
+  实测：注册后试跑 `LastResult=0`，日志 `[10-02 06:14:21] 机端已在跑（pid=30120），跳过`，无副作用。
+- **重启自愈链（2026-10-02 全链路实测）**：自动登录（boot 后 ~4s Administrator type-2）→ `FleetNode-AutoStart`（~5s 后触发，rc=0）→ 机端 → `Ensure-Workers`（判活含进程身份校验，见 commit `a168c9e`）→ worker → 模拟器 → 任务。
 
 ### 部署坑（重要）
 - **`.ps1` 必须带 UTF-8 BOM**：PowerShell 5.1 读无 BOM 文件按本地编码解析，中文字符串会被读坏

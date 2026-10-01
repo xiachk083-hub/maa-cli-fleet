@@ -88,6 +88,28 @@ if ($x -match '^\d+$' -and (Get-Process -Id ([int]$x) -ErrorAction SilentlyConti
 
 另：计划任务 `FleetNode-AutoStart`（Administrator / Interactive / Highest / AtLogon，动作 `boot_node.ps1`）确认在岗，10-01 22:50 蓝屏重启后 **22:50:50 自动触发、LastResult=0** —— 重启→自愈链路的"自动触发"这一环本来就是好的，坏的是 `Ensure-Workers` 的判活。
 
+### 5.2 恢复链全链路证据（10-02 06:15，TESTED）
+
+| 环节 | 证据 |
+|---|---|
+| ① 自动登录 | 两次蓝屏重启：`System 6005` 16:48:46 → Administrator type-2 登录 16:48:50；22:50:25 → 22:50:29（Security 4624）；`query user` 当前会话登录时间 = 10-01 22:50 |
+| ② AtLogon 计划任务 | TaskScheduler/Operational：16:48:53 启动 → 16:50:14 完成 rc=0；22:50:31 启动 → 22:52:00 完成 rc=0 |
+| ③ boot_node → 机端 | `ops\boot_node.log`：16:50:14 / 22:52:00 `机端已拉起 … rc=0` |
+| ④ 机端 → worker 自愈 | §5.1 演习（PID 复用场景自动清理 + 重拉） |
+| ⑤ worker → 模拟器 → 任务 | §4.1：90 秒内 MuMu 实例 9 起来 → adb boot=1 → 肉鸽发车 |
+
+**结论：机器再蓝屏/重启，全链路无人干预可恢复；唯一慢的是老机器开机本身（07:30 那次从 boot 到机端用了 6.5 分钟）。**
+
+### 5.3 加固：机端看门狗（10-02 06:14，TESTED）
+
+原链路只覆盖「重启后恢复」；机端进程**自身**意外死掉（没重启机器）时没人拉它（worker 还能跑，但再死就没补位）。新增：
+
+| 任务 | 触发器 | 动作 | 说明 |
+|---|---|---|---|
+| `FleetNode-Watchdog` | 每 10 分钟、无限重复（IgnoreNew） | `boot_node.ps1`（幂等） | 机端不在了就拉起 → Ensure-Workers → worker/模拟器/任务全回来 |
+
+实测：注册后试跑 `LastResult=0`，`boot_node.log` 记 `[10-02 06:14:21] 机端已在跑（pid=30120），跳过` —— 无副作用。
+
 ## 6. 遗留 / 待办（UNVERIFIED / 未做）
 
 1. **蓝屏本身没修**：`0x3b` 一天两次（`C:\Windows\MEMORY.DMP`）。需要单独立项：查 dump、排除驱动/内存/模拟器高负载；否则同类停摆还会再来（判活修复只保证"再来也能自动恢复"）。
