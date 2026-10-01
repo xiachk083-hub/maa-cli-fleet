@@ -54,6 +54,14 @@ type autoMasUser struct {
 
 // Run 生成产物；ourIDs 是已接管的 id（跳过）。
 func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
+	// 官服的"切换账号"掩码（主机本地文件，不进库）：{"a04":"186****6119", ...}
+	masks := map[string]string{}
+	if b, err := os.ReadFile(filepath.Join(root, "runner", "masks.json")); err == nil {
+		_ = json.Unmarshal(b, &masks)
+	}
+	fmt.Printf("官服掩码载入：%d 个
+", len(masks))
+
 	raw, err := os.ReadFile(filepath.Join(autoMasDir, "config", "ScriptConfig.json"))
 	if err != nil {
 		return fmt.Errorf("读 ScriptConfig.json 失败：%w", err)
