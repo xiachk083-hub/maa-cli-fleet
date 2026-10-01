@@ -57,6 +57,11 @@ func (r *Runner) runTask(t *Task) {
 		}
 	}
 	r.finishTask(t, ok2, note, out)
+	if ok2 {
+		r.mu.Lock()
+		t.CostSec = int(time.Since(start).Seconds())
+		r.mu.Unlock()
+	}
 	if ok2 && t.Kind == "daily" {
 		r.scheduleNextDaily(t, acc)
 		r.saveState()

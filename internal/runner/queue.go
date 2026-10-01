@@ -28,6 +28,8 @@ type Task struct {
 	OutFile   string `json:"outFile,omitempty"`
 	Priority  int    `json:"priority"` // 越小越先跑
 	NextDue   string `json:"nextDueAt,omitempty"` // 理智快满的时间点（自循环用）
+	CostSec   int    `json:"costSec,omitempty"`   // 上次实际耗时（排班用）
+	PlanAt    string `json:"planAt,omitempty"`    // 前瞻排班给它的执行时刻
 	SanityCur int    `json:"sanityCur,omitempty"`
 	SanityMax int    `json:"sanityMax,omitempty"`
 }

@@ -80,6 +80,7 @@ func main() {
 		}
 		if hasFlag(args, "-status") {
 			r.Status()
+			r.LogPlan()
 			return
 		}
 		if hasFlag(args, "-once") {

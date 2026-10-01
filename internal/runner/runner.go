@@ -175,7 +175,12 @@ func (r *Runner) syncQueue() (added int) {
 		case t.State == "failed" && t.Attempts < maxAttempts:
 			dueNow = true
 		case t.State == "done":
-			if t.NextDue == "" {
+			// 前瞻排班优先：排班给的时间点到了才跑（这样就不会"到点一拥而上"）
+			if t.PlanAt != "" {
+				if ts, err := time.Parse("2006-01-02 15:04:05", t.PlanAt); err == nil {
+					dueNow = time.Now().After(ts)
+				}
+			} else if t.NextDue == "" {
 				dueNow = true // 老记录没算过 → 补算
 			} else if ts, err := time.Parse("2006-01-02 15:04:05", t.NextDue); err == nil && time.Now().After(ts) {
 				dueNow = true
@@ -315,6 +320,9 @@ func (r *Runner) Run(once bool) {
 	for {
 		r.Tick()
 		tick++
+		if tick%5 == 0 {
+			r.BuildPlan() // 前瞻排班：把后面的活儿按容量铺开
+		}
 		if tick%10 == 0 {
 			r.SweepOrphans()
 		}
