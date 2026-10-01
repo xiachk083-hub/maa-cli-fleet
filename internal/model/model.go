@@ -83,6 +83,13 @@ type Account struct {
 	AnnTask  string `json:"annTask,omitempty"`
 	State    string `json:"state"`
 	Enabled  bool   `json:"enabled"`
+
+	// 肉鸽 = 常驻任务（与日常/剿灭同一套任务模型，只是策略不同）：
+	// RogueTask 非空 → 这台机跑常驻肉鸽（跑完/挂了立刻重来，实例不关机）；
+	// Resident 标记常驻机（不参与“跑完停机”的轮转）。
+	RogueTask string `json:"rogueTask,omitempty"`
+	Resident  bool   `json:"resident,omitempty"`
+	StateDir  string `json:"stateDir,omitempty"` // MAA_STATE_DIR 覆盖（绝对路径；默认 stateRoot/state_<id>）
 }
 
 // AccountsFile 是 accounts.json 的顶层。

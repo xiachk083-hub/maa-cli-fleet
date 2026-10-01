@@ -28,6 +28,12 @@ func (r *Runner) runTask(t *Task) {
 	start := time.Now()
 	log.Printf("[%s] 开始 %s（%s，第 %d 次）", t.Key, acc.Name, t.Kind, t.Attempts)
 
+	// 常驻机（肉鸽）：日常要插队 —— 先暂停肉鸽（杀 maa，模拟器不动），跑完自动接回
+	if acc.Resident {
+		r.pauseResident(acc.ID)
+		defer r.resumeResident(acc.ID)
+	}
+
 	// 阶梯：第 2 次尝试开始先硬重启模拟器（坏 VM 重试没用，直接换一台干净的）
 	if t.Attempts >= 2 {
 		DeviceHardReset(r.cfg, acc.Emu)
@@ -41,6 +47,11 @@ func (r *Runner) runTask(t *Task) {
 		return
 	}
 	log.Printf("[%s] 设备就绪 127.0.0.1:%s", t.Key, port)
+
+	// 常驻机：从肉鸽被打断的现场里起来，先关游戏（否则 MAA 从脏画面起步）
+	if acc.Resident {
+		forceStopGame(r.cfg, port, GamePackage(r.cfg, acc.Client, port))
+	}
 
 	ok2, out, err := r.execMaa(acc, port, t.File)
 	note := ""
@@ -57,8 +68,10 @@ func (r *Runner) runTask(t *Task) {
 		r.scheduleNextDaily(t, acc)
 		r.saveState()
 	}
-	// 连锁（和肉鸽机一样）：同实例里还有别的账号要跑 → 不关机，直接接下一个
-	if r.sameInstanceHasWork(acc) {
+	// 常驻机：永不关机（肉鸽要接着跑）；其它机：同实例还有活儿就连锁，否则停机
+	if acc.Resident {
+		log.Printf("[%s] 常驻机 → 保持开机，肉鸽接回", t.Key)
+	} else if r.sameInstanceHasWork(acc) {
 		log.Printf("[%s] 同实例还有活儿 → 保持开机，接着排下一个", t.Key)
 	} else {
 		DeviceDown(r.cfg, acc.Emu)
@@ -68,15 +81,32 @@ func (r *Runner) runTask(t *Task) {
 	r.report(t, acc, port, ok2, note)
 }
 
-// execMaa：跑一个任务文件并等它结束；返回 (无 Error, outFile, err)。
-func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, error) {
+// stateDirOf：该账号的 MAA_STATE_DIR（肉鸽机沿用老目录，避免丢缓存）。
+func (r *Runner) stateDirOf(a model.Account) string {
+	if a.StateDir != "" {
+		return a.StateDir
+	}
+	return filepath.Join(r.cfg.DataRoot, "state_"+a.ID)
+}
+
+// maaRun：一次 maa 进程（日常/剿灭/肉鸽共用）。
+type maaRun struct {
+	cmd  *exec.Cmd
+	out  string
+	task string
+}
+
+func (m *maaRun) closeOut() {
+	// 进程结束/被杀后关掉我们持有的句柄（子进程有自己的句柄，不影响）
+}
+
+// startMaa 发车一个任务（不等待）；env 与旧 execMaa 完全一致。
+func (r *Runner) startMaa(a model.Account, port, task string) (*maaRun, error) {
 	outFile := filepath.Join(r.cfg.LogDir, fmt.Sprintf("%s_%s.out", task, time.Now().Format("0102_150405")))
 	f, err := os.Create(outFile)
 	if err != nil {
-		return false, outFile, err
+		return nil, err
 	}
-	defer f.Close()
-
 	args := []string{"--batch", "run", task, "-a", "127.0.0.1:" + port}
 	if a.Client != "" {
 		args = append(args, "-p", a.Client)
@@ -89,21 +119,18 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 		"MAA_CONFIG_DIR="+r.cfg.ConfigDir,
 		"MAA_DATA_DIR="+r.cfg.DataRoot,
 		"MAA_CACHE_DIR="+r.cfg.CacheDir,
-		"MAA_STATE_DIR="+filepath.Join(r.cfg.DataRoot, "state_"+a.ID),
+		"MAA_STATE_DIR="+r.stateDirOf(a),
 	)
 	if err := cmd.Start(); err != nil {
-		return false, outFile, err
+		_ = f.Close()
+		return nil, err
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(time.Duration(r.cfg.TaskTimeoutMin) * time.Minute):
-		_ = exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run()
-		return false, outFile, fmt.Errorf("任务超时 %d 分钟", r.cfg.TaskTimeoutMin)
-	}
-	// 真核对（G7）：必须有任务链 Completed 行，且没有任务链 Error 行；
-	// 只“秒退”（资源/内核崩、TOML 错）那种什么都没有的，一律判失败。
+	return &maaRun{cmd: cmd, out: outFile, task: task}, nil
+}
+
+// judgeOutFile：真核对（G7）——必须有任务链 Completed 行、且没有任务链 Error 行；
+// 只“秒退”（资源/内核崩、TOML 错）那种什么都没有的，一律判失败。
+func (r *Runner) judgeOutFile(outFile string) (bool, string) {
 	b, _ := os.ReadFile(outFile)
 	completed, errored := 0, 0
 	for _, line := range strings.Split(string(b), "\n") {
@@ -117,14 +144,35 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 			completed++
 		}
 	}
-	// 进程级崩溃/配置错误的痕迹也直接判失败
 	hardFail := regexp.MustCompile(`ExceptionCode 0x|Failed to find task file|TOML parse error|unknown variant`).Match(b)
 	if errored > 0 || hardFail || completed == 0 {
-		log.Printf("[judge] %s: completed=%d errored=%d hardFail=%v → 失败", filepath.Base(outFile), completed, errored, hardFail)
-		return false, outFile, nil
+		return false, fmt.Sprintf("completed=%d errored=%d hardFail=%v", completed, errored, hardFail)
 	}
-	log.Printf("[judge] %s: completed=%d → 成功", filepath.Base(outFile), completed)
-	return true, outFile, nil
+	return true, fmt.Sprintf("completed=%d", completed)
+}
+
+// execMaa：跑一个任务文件并等它结束；返回 (无 Error, outFile, err)。
+func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, error) {
+	run, err := r.startMaa(a, port, task)
+	if err != nil {
+		return false, "", err
+	}
+	done := make(chan error, 1)
+	go func() { done <- run.cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(time.Duration(r.cfg.TaskTimeoutMin) * time.Minute):
+		killMaa(run)
+		<-done
+		return false, run.out, fmt.Errorf("任务超时 %d 分钟", r.cfg.TaskTimeoutMin)
+	}
+	ok, why := r.judgeOutFile(run.out)
+	if !ok {
+		log.Printf("[judge] %s: %s → 失败", filepath.Base(run.out), why)
+		return false, run.out, nil
+	}
+	log.Printf("[judge] %s: %s → 成功", filepath.Base(run.out), why)
+	return true, run.out, nil
 }
 
 // sameInstanceHasWork：同一实例里是否还有其他账号的未完成任务（用于“不关机、接着跑”的连锁）。
@@ -164,7 +212,7 @@ func (r *Runner) makeFallbackTask(a model.Account) string {
 
 // readSanity：从 MAA 状态日志读最后一条 current/max sanity。
 func (r *Runner) readSanity(a model.Account) (cur, max int) {
-	p := filepath.Join(r.cfg.DataRoot, "state_"+a.ID, "debug", "asst.log")
+	p := filepath.Join(r.stateDirOf(a), "debug", "asst.log")
 	b, err := os.ReadFile(p)
 	if err != nil {
 		return 0, 0
@@ -257,17 +305,38 @@ func (r *Runner) ReportSummary() {
 			continue
 		}
 		st := map[string]any{"health": "!!需处理", "maa": "待跑"}
+		dailySet := false
 		if t := r.state.Tasks["daily:"+a.ID]; t != nil {
 			switch {
 			case t.State == "running":
 				st["maa"] = "日常跑着"
+				dailySet = true
 			case t.State == "done" && t.Day == day:
 				st["maa"], st["health"] = "日常完成", "OK"
 				doneN++
+				dailySet = true
 			case t.State == "failed" && t.Day == day:
 				st["maa"] = "日常失败"
+				dailySet = true
 			}
 			st["note"] = t.Note
+		}
+		// 常驻肉鸽机：日常没在跑/没完成时，主状态就是肉鸽
+		if a.RogueTask != "" {
+			if l := r.lanes[a.ID]; l != nil {
+				rs := l.status()
+				if !dailySet {
+					st["maa"] = rs
+				}
+				if rs == "肉鸽跑着" && r.logAgeMin(a) < 5 {
+					st["health"] = "OK"
+				}
+				if n := l.noteText(); n != "" {
+					st["note"] = n
+				}
+			} else {
+				st["maa"] = "肉鸽未启动"
+			}
 		}
 		if a.AnnTask != "" {
 			if t := r.state.Tasks["ann:"+a.ID]; t != nil && t.Week == week {

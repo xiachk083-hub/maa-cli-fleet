@@ -59,6 +59,7 @@ type Runner struct {
 	mu       sync.Mutex
 	running  map[string]bool // accountID → 该账号有任务在跑（串行保护）
 	active   map[string]*Task
+	lanes    map[string]*rogueLane // 常驻肉鸽车道（accountID → lane）
 	httpc    *http.Client
 	token    string
 
@@ -92,7 +93,8 @@ func New(cfgPath string) (*Runner, error) {
 		cfg.MaxCpuPct = 85
 	}
 	r := &Runner{cfg: cfg, state: &State{Tasks: map[string]*Task{}},
-		running: map[string]bool{}, active: map[string]*Task{}, httpc: &http.Client{Timeout: 30 * time.Second}}
+		running: map[string]bool{}, active: map[string]*Task{}, lanes: map[string]*rogueLane{},
+		httpc: &http.Client{Timeout: 30 * time.Second}}
 
 	if cfg.LogFile != "" {
 		_ = os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755)
@@ -123,7 +125,12 @@ func New(cfgPath string) (*Runner, error) {
 		}
 	}
 	// 上次进程被杀/崩了 → 残留的 running 一律回收进队列（否则那些账号当天被跳过）
-	for _, t := range r.state.Tasks {
+	// rogue 任务不在此列：它由常驻车道重建（每次启动都重新拉起）。
+	for k, t := range r.state.Tasks {
+		if t.Kind == "rogue" {
+			delete(r.state.Tasks, k)
+			continue
+		}
 		if t.State == "running" {
 			t.State = "queued"
 			t.Note = "重启回收"
@@ -210,6 +217,14 @@ func (r *Runner) syncQueue() (added int) {
 				}
 			}
 		}
+		// 肉鸽（常驻型）：这条不排队，只保证台账存在；真正的循环在 rogue.go 的车道里
+		if a.RogueTask != "" {
+			rk := "rogue:" + a.ID
+			if r.state.Tasks[rk] == nil {
+				r.state.Tasks[rk] = &Task{Key: rk, AccountID: a.ID, Kind: "rogue", File: a.RogueTask,
+					State: "running", Enqueued: nowStamp(), Started: nowStamp(), Note: "常驻"}
+			}
+		}
 	}
 	return added
 }
@@ -274,6 +289,7 @@ func (r *Runner) Cancel(key string) error {
 func (r *Runner) Status() {
 	day := gameDay()
 	queued, running, doneD, doneA, failed := 0, 0, 0, 0, 0
+	rogueN := 0
 	var pend []string
 	r.mu.Lock()
 	for _, t := range r.state.Tasks {
@@ -282,7 +298,11 @@ func (r *Runner) Status() {
 			queued++
 			pend = append(pend, t.Key)
 		case "running":
-			running++
+			if t.Kind == "rogue" {
+				rogueN++
+			} else {
+				running++
+			}
 		case "done":
 			if t.Kind == "daily" && t.Day == day {
 				doneD++
@@ -296,7 +316,7 @@ func (r *Runner) Status() {
 	total := len(r.accounts)
 	r.mu.Unlock()
 	sort.Strings(pend)
-	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发上限 %d（在跑 %d）｜资源 空闲 %dMB / CPU %.0f%%", day, total, r.cfg.MaxConcurrent, running, FreeRAMMB(), r.CPUPercent())
+	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发上限 %d（在跑 %d，肉鸽常驻 %d）｜资源 空闲 %dMB / CPU %.0f%%", day, total, r.cfg.MaxConcurrent, running, rogueN, FreeRAMMB(), r.CPUPercent())
 	log.Printf("  今日日常完成 %d/%d｜本周剿灭完成 %d｜队列待跑 %d｜失败 %d%s", doneD, total, doneA, queued, failed,
 		func() string {
 			if len(pend) > 0 {
@@ -316,6 +336,7 @@ func (r *Runner) Status() {
 func (r *Runner) Run(once bool) {
 	log.Printf("调度器启动：并发位 %d，账号 %d 个（任务队列模型）", r.cfg.Slots, len(r.accounts))
 	r.SweepOrphans()
+	r.startResidents() // 常驻肉鸽车道（不受并发位限制）
 	tick := 0
 	for {
 		r.Tick()
@@ -332,6 +353,7 @@ func (r *Runner) Run(once bool) {
 		if r.cfg.StopFile != "" {
 			if _, err := os.Stat(r.cfg.StopFile); err == nil {
 				log.Printf("收到停止信号，等在场任务收尾…")
+				r.stopResidents()
 				r.drain(10 * time.Minute)
 				_ = os.Remove(r.cfg.StopFile)
 				return
@@ -388,7 +410,8 @@ func (r *Runner) Tick() {
 	free := r.cfg.MaxConcurrent - running
 	var ready []*Task
 	for _, t := range r.state.Tasks {
-		if t.State == "queued" && !r.running[t.AccountID] {
+		// 只领 daily/ann；rogue 是常驻车道，绝不能被并发位当一次性任务发出去
+		if t.State == "queued" && t.Kind != "rogue" && !r.running[t.AccountID] {
 			ready = append(ready, t)
 		}
 	}
