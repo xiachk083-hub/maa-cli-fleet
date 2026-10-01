@@ -1,20 +1,19 @@
-// Package runner —— 槽位轮转调度器：一天内把全部账号的日常（+到期的剿灭）跑完。
+// Package runner —— 任务队列调度器：一个账号的一次动作 = 一个原子任务；最多 N 个并发。
 //
-// 自含：设备（MuMuManager/adb）、maa 发车、结果判定、状态记录、向 center 上报——都不依赖 PowerShell。
-// 并发：每个槽一个 goroutine；Go 直接 Wait 子进程，不需要轮询 pid 文件。
+// 不是"分批"：队列里始终只有"该做/没做完"的任务，调度器用 8 个并发位把它们跑掉。
+// 每个任务独立重试（≤3 次）、独立记录；同一账号的任务串行（不会两台 maa 抢一个模拟器）。
+//
+// 自含：设备（MuMuManager/adb）、maa 发车、结果判定、状态、向 center 上报——不依赖 PowerShell。
 package runner
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -33,28 +32,20 @@ type Config struct {
 	DataRoot        string `json:"stateRoot"`
 	CacheDir        string `json:"cacheDir"`
 	LogDir          string `json:"logDir"`
+	LogFile         string `json:"logFile"`
 	AccountsFile    string `json:"accountsFile"`
 	StateFile       string `json:"stateFile"`
+	StopFile        string `json:"stopFile"`
 	CenterURL       string `json:"centerUrl"`
 	CenterTokenFile string `json:"centerTokenFile"`
 	NodeID          string `json:"nodeId"`
+	TaskTimeoutMin  int    `json:"taskTimeoutMin"`
 }
 
-// State 是 runner/state.json。
+// State 是 runner/state.json：任务台账。
 type State struct {
-	Accounts map[string]*AccState `json:"accounts"`
+	Tasks map[string]*Task `json:"tasks"`
 }
-
-// AccState 单账号的跟踪状态。
-type AccState struct {
-	DoneDate string `json:"doneDate,omitempty"`
-	LastEnd  string `json:"lastEnd,omitempty"`
-	Fails    int    `json:"fails,omitempty"`
-	LastNote string `json:"lastNote,omitempty"`
-	LastOK   bool   `json:"lastOk,omitempty"`
-}
-
-const maxFailPerDay = 3
 
 // Runner 是调度器实例。
 type Runner struct {
@@ -62,45 +53,64 @@ type Runner struct {
 	accounts []model.Account
 	state    *State
 	mu       sync.Mutex
-	running  map[string]bool
+	running  map[string]bool // accountID → 该账号有任务在跑（串行保护）
+	active   map[string]*Task
 	httpc    *http.Client
 	token    string
 }
 
-// New 加载配置与账号表。
+// New 加载配置/账号/状态（失败要吵：今天吃过"静默加载失败"的亏）。
 func New(cfgPath string) (*Runner, error) {
 	b, err := model.ReadFileBOM(cfgPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读配置 %s：%w", cfgPath, err)
 	}
 	var cfg Config
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析配置（注意 BOM/转义）：%w", err)
 	}
 	if cfg.Slots <= 0 {
 		cfg.Slots = 8
 	}
-	r := &Runner{cfg: cfg, state: &State{Accounts: map[string]*AccState{}}, running: map[string]bool{}, httpc: &http.Client{Timeout: 30 * time.Second}}
+	if cfg.TaskTimeoutMin <= 0 {
+		cfg.TaskTimeoutMin = 75
+	}
+	r := &Runner{cfg: cfg, state: &State{Tasks: map[string]*Task{}},
+		running: map[string]bool{}, active: map[string]*Task{}, httpc: &http.Client{Timeout: 30 * time.Second}}
+
+	if cfg.LogFile != "" {
+		_ = os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755)
+		f, err := os.OpenFile(cfg.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			log.SetOutput(io.MultiWriter(os.Stderr, f))
+		}
+	}
 	if b, err := model.ReadFileBOM(cfg.CenterTokenFile); err == nil {
 		r.token = strings.TrimSpace(string(b))
 	}
-	if b, err := model.ReadFileBOM(cfg.AccountsFile); err == nil {
-		var af model.AccountsFile
-		if err := json.Unmarshal(b, &af); err == nil {
-			r.accounts = af.Accounts
-			if af.Slots > 0 && cfg.Slots <= 0 {
-				r.cfg.Slots = af.Slots
-			}
-		}
+	b, err = model.ReadFileBOM(cfg.AccountsFile)
+	if err != nil {
+		return nil, fmt.Errorf("读账号表 %s：%w（先跑 fleet gen）", cfg.AccountsFile, err)
 	}
+	var af model.AccountsFile
+	if err := json.Unmarshal(b, &af); err != nil {
+		return nil, fmt.Errorf("解析账号表：%w", err)
+	}
+	if len(af.Accounts) == 0 {
+		return nil, fmt.Errorf("账号表里没有账号：%s", cfg.AccountsFile)
+	}
+	r.accounts = af.Accounts
 	if b, err := model.ReadFileBOM(cfg.StateFile); err == nil {
-		_ = json.Unmarshal(b, r.state)
-		if r.state.Accounts == nil {
-			r.state.Accounts = map[string]*AccState{}
+		_ = json.Unmarshal(b, &r.state)
+		if r.state.Tasks == nil {
+			r.state.Tasks = map[string]*Task{}
 		}
 	}
 	return r, nil
 }
+
+// Slots 返回当前并发位。
+func (r *Runner) Slots() int { return r.cfg.Slots }
 
 func (r *Runner) saveState() {
 	r.mu.Lock()
@@ -114,274 +124,222 @@ func (r *Runner) saveState() {
 
 func gameDay() string { return time.Now().Add(-4 * time.Hour).Format("2006-01-02") }
 
-// weekKey 返回本周（游戏日口径）周一的日期。
+// weekKey 返回本周（游戏日口径）周一。
 func weekKey() string {
 	t := time.Now().Add(-4 * time.Hour)
-	wd := (int(t.Weekday()) + 6) % 7 // 周一=0
+	wd := (int(t.Weekday()) + 6) % 7
 	return t.AddDate(0, 0, -wd).Format("2006-01-02")
 }
 
-// Status 打印一眼状态。
-func (r *Runner) Status() {
-	day := gameDay()
-	done, total := 0, 0
+// ---- 队列维护 ---------------------------------------------------------------
+
+// syncQueue：把"该做但还没做"的任务补进队列（幂等）。
+func (r *Runner) syncQueue() (added int) {
+	day, week := gameDay(), weekKey()
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, a := range r.accounts {
 		if !a.Enabled {
 			continue
 		}
-		total++
-		if s := r.state.Accounts[a.ID]; s != nil && s.DoneDate == day {
-			done++
+		// 日常
+		dk := "daily:" + a.ID
+		if t := r.state.Tasks[dk]; t == nil || (t.Day != day && !r.working(dk)) || (t.State == "failed" && t.Attempts < maxAttempts) {
+			if t == nil || t.Day != day {
+				r.state.Tasks[dk] = &Task{Key: dk, AccountID: a.ID, Kind: "daily", File: a.Daily,
+					State: "queued", Day: day, Enqueued: nowStamp(), Priority: 10}
+				added++
+			}
+		}
+		// 剿灭（按周）
+		if a.AnnTask != "" {
+			ak := "ann:" + a.ID
+			if t := r.state.Tasks[ak]; t == nil || (t.Week != week && !r.working(ak)) || (t.State == "failed" && t.Attempts < maxAttempts && t.Week == week) {
+				if t == nil || t.Week != week {
+					r.state.Tasks[ak] = &Task{Key: ak, AccountID: a.ID, Kind: "ann", File: a.AnnTask,
+						State: "queued", Week: week, Enqueued: nowStamp(), Priority: 20}
+					added++
+				}
+			}
 		}
 	}
-	running := len(r.running)
-	r.mu.Unlock()
-	log.Printf("游戏日 %s | 已完成 %d/%d | 在跑 %d/%d 槽", day, done, total, running, r.cfg.Slots)
+	return added
 }
 
-// Run 常驻调度（或 Once 单轮）。
-func (r *Runner) Run(once bool) {
-	if !once {
-		log.Printf("调度器启动：槽位 %d，账号 %d 个", r.cfg.Slots, len(r.accounts))
+// working：任务是否正在跑（调用方持锁）。
+func (r *Runner) working(key string) bool {
+	_, ok := r.active[key]
+	return ok
+}
+
+// Enqueue 手工塞一个任务（fleet runner -enqueue daily:a07）。
+func (r *Runner) Enqueue(spec string) error {
+	parts := strings.SplitN(spec, ":", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("格式：<daily|ann>:<accountId>")
 	}
+	kind, id := parts[0], parts[1]
+	var acc *model.Account
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			acc = &r.accounts[i]
+		}
+	}
+	if acc == nil {
+		return fmt.Errorf("没有这个账号：%s", id)
+	}
+	file := acc.Daily
+	if kind == "ann" {
+		file = acc.AnnTask
+		if file == "" {
+			return fmt.Errorf("%s 没有剿灭任务", id)
+		}
+	}
+	key := kind + ":" + id
+	r.mu.Lock()
+	r.state.Tasks[key] = &Task{Key: key, AccountID: id, Kind: kind, File: file,
+		State: "queued", Day: gameDay(), Week: weekKey(), Enqueued: nowStamp(),
+		Priority: 5, Note: "手工入队"}
+	r.mu.Unlock()
+	r.saveState()
+	log.Printf("[queue] 手工入队 %s", key)
+	return nil
+}
+
+// Cancel 取消一个任务。
+func (r *Runner) Cancel(key string) error {
+	r.mu.Lock()
+	t, ok := r.state.Tasks[key]
+	if ok && t.State != "running" {
+		t.State = "failed"
+		t.Note = "手工取消"
+	}
+	r.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("没有这个任务：%s", key)
+	}
+	r.saveState()
+	return nil
+}
+
+// Status 打印队列视图。
+func (r *Runner) Status() {
+	day := gameDay()
+	queued, running, done, failed := 0, 0, 0, 0
+	var pend []string
+	r.mu.Lock()
+	for _, t := range r.state.Tasks {
+		switch t.State {
+		case "queued":
+			queued++
+			pend = append(pend, t.Key)
+		case "running":
+			running++
+		case "done":
+			if t.Kind == "daily" && t.Day == day || t.Kind == "ann" && t.Week == weekKey() {
+				done++
+			}
+		case "failed":
+			failed++
+		}
+	}
+	total := len(r.accounts)
+	r.mu.Unlock()
+	sort.Strings(pend)
+	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发位 %d（在跑 %d）", day, total, r.cfg.Slots, running)
+	log.Printf("  今日日常已完成 %d/%d｜队列待跑 %d｜失败累计 %d%s", done, total, queued, failed,
+		func() string {
+			if len(pend) > 0 {
+				n := len(pend)
+				if n > 8 {
+					n = 8
+				}
+				return "｜下一个：" + strings.Join(pend[:n], ", ")
+			}
+			return ""
+		}())
+}
+
+// ---- 调度 -------------------------------------------------------------------
+
+// Run 常驻（once=true 只跑一轮 tick）。
+func (r *Runner) Run(once bool) {
+	log.Printf("调度器启动：并发位 %d，账号 %d 个（任务队列模型）", r.cfg.Slots, len(r.accounts))
 	for {
-		r.tick()
+		r.Tick()
 		if once {
 			return
 		}
-		time.Sleep(60 * time.Second)
+		if r.cfg.StopFile != "" {
+			if _, err := os.Stat(r.cfg.StopFile); err == nil {
+				log.Printf("收到停止信号，等在场任务收尾…")
+				r.drain(10 * time.Minute)
+				_ = os.Remove(r.cfg.StopFile)
+				return
+			}
+		}
+		time.Sleep(30 * time.Second)
 	}
 }
 
-// tick：把当天未完成的账号按“上次完成时间最旧优先”填进空槽。
-func (r *Runner) tick() {
-	day := gameDay()
-	type cand struct {
-		acc     model.Account
-		lastEnd string
+func (r *Runner) drain(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		n := len(r.active)
+		r.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(5 * time.Second)
 	}
-	var due []cand
+}
+
+// Tick：补队列 → 填并发位。
+func (r *Runner) Tick() {
+	added := r.syncQueue()
+	r.saveState()
+
 	r.mu.Lock()
-	free := r.cfg.Slots - len(r.running)
-	for _, a := range r.accounts {
-		if !a.Enabled || r.running[a.ID] {
-			continue
+	free := r.cfg.Slots - len(r.active)
+	var ready []*Task
+	for _, t := range r.state.Tasks {
+		if t.State == "queued" && !r.running[t.AccountID] {
+			ready = append(ready, t)
 		}
-		s := r.state.Accounts[a.ID]
-		if s == nil {
-			s = &AccState{}
-			r.state.Accounts[a.ID] = s
-		}
-		if s.DoneDate == day {
-			continue
-		}
-		le := s.LastEnd
-		if le == "" {
-			le = "2000-01-01T00:00:00"
-		}
-		due = append(due, cand{a, le})
 	}
 	r.mu.Unlock()
-	sort.Slice(due, func(i, j int) bool { return due[i].lastEnd < due[j].lastEnd })
-	log.Printf("[tick] 游戏日 %s | 空槽 %d | 待跑 %d", day, free, len(due))
-	for i := 0; i < len(due) && i < free; i++ {
-		a := due[i].acc
+	sortQueue(ready)
+	if added > 0 || len(ready) > 0 {
+		log.Printf("[tick] 新入队 %d｜待跑 %d｜空位 %d", added, len(ready), free)
+	}
+	for i := 0; i < len(ready) && i < free; i++ {
+		t := ready[i]
 		r.mu.Lock()
-		r.running[a.ID] = true
+		t.State = "running"
+		t.Started = nowStamp()
+		t.Attempts++
+		r.active[t.Key] = t
+		r.running[t.AccountID] = true
 		r.mu.Unlock()
-		go func(a model.Account) {
+		go func(t *Task) {
 			defer func() {
 				r.mu.Lock()
-				delete(r.running, a.ID)
+				delete(r.active, t.Key)
+				delete(r.running, t.AccountID)
 				r.mu.Unlock()
 			}()
-			r.slot(a)
-		}(a)
+			r.runTask(t)
+		}(t)
 	}
 }
 
-// slot：一个账号的一次“起机 → 日常 →（剿灭）→ 停机”。
-func (r *Runner) slot(a model.Account) {
-	day := gameDay()
-	start := time.Now()
-	logf := func(format string, args ...any) {
-		log.Printf("["+a.ID+"] "+format, args...)
-	}
-	logf("开始：%s client=%s stage=%s emu=%s", a.Name, a.Client, a.Stage, a.Emu)
-
-	port, err := DeviceUp(r.cfg, a.Emu)
-	if err != nil {
-		logf("设备未就绪：%v", err)
-		r.finish(a, day, false, err.Error(), start)
-		return
-	}
-	logf("设备就绪 127.0.0.1:%s", port)
-
-	pkg := GamePackage(r.cfg, a.Client, port)
-	state := map[string]any{
-		"maa": "\u65e0", "logAgeMin": 9999, "tunnel": "\u901a",
-		"game": GameRunning(r.cfg, port, pkg), "health": "!!\u9700\u5904\u7406",
-		"sampledAt": time.Now().Format("01-02 15:04"),
-	}
-
-	// 日常
-	ok, out, err := r.runTask(a, port, a.Daily)
-	note := ""
-	if err != nil {
-		note = err.Error()
-	}
-	logf("日常结束 ok=%v note=%s out=%s", ok, note, filepath.Base(out))
-
-	// 剿灭（本周没做就做）
-	if ok && a.AnnTask != "" {
-		wk := weekKey()
-		markFile := filepath.Join(filepath.Dir(r.cfg.StateFile), "annweek_"+a.ID+".txt")
-		if b, err := os.ReadFile(markFile); err != nil || strings.TrimSpace(string(b)) != wk {
-			annOK, _, _ := r.runTask(a, port, a.AnnTask)
-			logf("剿灭结束 ok=%v（周 %s）", annOK, wk)
-			if annOK {
-				_ = os.WriteFile(markFile, []byte(wk), 0o644)
-			} else if note == "" {
-				note = "剿灭失败"
-			}
-		} else {
-			logf("剿灭本周已完成（%s），跳过", wk)
-		}
-	}
-
-	if ok {
-		state["health"] = "OK"
-		state["maa"] = "\u5df2\u5b8c\u6210"
-	}
-	DeviceDown(r.cfg, a.Emu)
-	logf("已停机")
-	r.finish(a, day, ok, note, start)
-	r.report(a.ID, state)
-}
-
-// runTask：发车 maa 并等它结束；返回 (无 Error, outFile, err)。
-func (r *Runner) runTask(a model.Account, port, task string) (bool, string, error) {
-	outFile := filepath.Join(r.cfg.LogDir, fmt.Sprintf("%s_%s.out", task, time.Now().Format("0102_150405")))
-	f, err := os.Create(outFile)
-	if err != nil {
-		return false, outFile, err
-	}
-	defer f.Close()
-
-	args := []string{"--batch", "run", task, "-a", "127.0.0.1:" + port}
-	if a.Client != "" {
-		args = append(args, "-p", a.Client)
-	}
-	cmd := exec.Command(r.cfg.MaaExe, args...)
-	cmd.Dir = filepath.Dir(r.cfg.MaaExe)
-	cmd.Stdout = f
-	cmd.Stderr = f
-	cmd.Env = append(os.Environ(),
-		"MAA_CONFIG_DIR="+r.cfg.ConfigDir,
-		"MAA_DATA_DIR="+r.cfg.DataRoot,
-		"MAA_CACHE_DIR="+r.cfg.CacheDir,
-		"MAA_STATE_DIR="+filepath.Join(r.cfg.DataRoot, "state_"+a.ID),
-	)
-	if err := cmd.Start(); err != nil {
-		return false, outFile, err
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(75 * time.Minute):
-		_ = exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run()
-		return false, outFile, fmt.Errorf("任务超时 75min")
-	}
-	// 结果判定：看 .out 里的 "… Error"
-	b, _ := os.ReadFile(outFile)
-	hasErr := regexp.MustCompile(`\]\s+Error`).Match(b)
-	if hasErr {
-		return false, outFile, nil
-	}
-	return true, outFile, nil
-}
-
-// finish：更新状态。
-func (r *Runner) finish(a model.Account, day string, ok bool, note string, start time.Time) {
-	r.mu.Lock()
-	s := r.state.Accounts[a.ID]
-	if s == nil {
-		s = &AccState{}
-		r.state.Accounts[a.ID] = s
-	}
-	s.LastEnd = time.Now().Format(time.RFC3339)
-	s.LastOK = ok
-	s.LastNote = note
-	if ok {
-		s.DoneDate = day
-		s.Fails = 0
-	} else {
-		s.Fails++
-		if s.Fails >= maxFailPerDay {
-			s.DoneDate = day // 当日放弃
-		}
-	}
-	fails := s.Fails
-	elapsed := time.Since(start).Round(time.Second)
-	r.mu.Unlock()
-	r.saveState()
-	log.Printf("[%s] 完成 ok=%v 耗时=%s 失败累计=%d %s", a.ID, ok, elapsed, fails, note)
-}
-
-// ---- 向 center 上报 ---------------------------------------------------------
-
-func (r *Runner) report(id string, state map[string]any) {
-	if r.cfg.CenterURL == "" || r.token == "" {
-		return
-	}
-	body, _ := json.Marshal(map[string]any{"node_id": r.cfg.NodeID, "kind": "event",
-		"data": map[string]any{"acc": id, "state": state}})
-	req, _ := http.NewRequest("POST", strings.TrimRight(r.cfg.CenterURL, "/")+"/report", bytes.NewReader(body))
-	req.Header.Set("X-Fleet-Token", r.token)
-	req.Header.Set("Content-Type", "application/json")
-	if resp, err := r.httpc.Do(req); err == nil {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}
-}
-
-// ReportSummary 把当前全队状态推给 center（节点视角）。
-func (r *Runner) ReportSummary() {
-	if r.cfg.CenterURL == "" || r.token == "" {
-		return
-	}
-	day := gameDay()
-	machines := map[string]any{}
-	r.mu.Lock()
+// FindAccount 找账号。
+func (r *Runner) FindAccount(id string) (model.Account, bool) {
 	for _, a := range r.accounts {
-		if !a.Enabled {
-			continue
+		if a.ID == id {
+			return a, true
 		}
-		s := r.state.Accounts[a.ID]
-		st := map[string]any{"health": "!!\u9700\u5904\u7406", "maa": "\u5f85\u8dd1"}
-		if s != nil && s.DoneDate == day {
-			st["health"] = "OK"
-			st["maa"] = "\u4eca\u65e5\u5df2\u5b8c\u6210"
-		}
-		if r.running[a.ID] {
-			st["maa"] = "\u8dd1\u7740"
-		}
-		if s != nil {
-			st["fails"] = s.Fails
-			st["lastNote"] = s.LastNote
-		}
-		machines[a.ID] = st
 	}
-	r.mu.Unlock()
-	body, _ := json.Marshal(map[string]any{"node_id": r.cfg.NodeID, "kind": "state",
-		"data": map[string]any{"machines": machines, "statusText": "runner"}})
-	req, _ := http.NewRequest("POST", strings.TrimRight(r.cfg.CenterURL, "/")+"/report", bytes.NewReader(body))
-	req.Header.Set("X-Fleet-Token", r.token)
-	req.Header.Set("Content-Type", "application/json")
-	if resp, err := r.httpc.Do(req); err == nil {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}
+	return model.Account{}, false
 }

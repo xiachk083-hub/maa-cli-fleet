@@ -63,6 +63,20 @@ func main() {
 			fmt.Fprintln(os.Stderr, "runner 启动失败：", err)
 			os.Exit(1)
 		}
+		if v := flagValue(args, "-enqueue", ""); v != "" {
+			if err := r.Enqueue(v); err != nil {
+				fmt.Fprintln(os.Stderr, "入队失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if v := flagValue(args, "-cancel", ""); v != "" {
+			if err := r.Cancel(v); err != nil {
+				fmt.Fprintln(os.Stderr, "取消失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if hasFlag(args, "-status") {
 			r.Status()
 			return
