@@ -167,7 +167,9 @@ func (r *Runner) BuildPlan() []planItem {
 	for _, it := range items { // 回写：优先级 + 计划时间
 		if t := r.state.Tasks[it.TaskKey]; t != nil {
 			t.PlanAt = it.Start.Format("2006-01-02 15:04:05")
-			if it.Note == "全满 → 插队" {
+			if strings.HasPrefix(t.Note, "热改") {
+				t.Priority = 1 // 热改“现在就跑”：保持插队，不被排班降级
+			} else if it.Note == "全满 → 插队" {
 				t.Priority = 1
 			} else if t.Priority < 10 {
 				t.Priority = 10

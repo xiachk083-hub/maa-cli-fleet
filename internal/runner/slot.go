@@ -305,29 +305,26 @@ func (r *Runner) ReportSummary() {
 			continue
 		}
 		st := map[string]any{"health": "!!需处理", "maa": "待跑"}
-		dailySet := false
 		if t := r.state.Tasks["daily:"+a.ID]; t != nil {
 			switch {
 			case t.State == "running":
 				st["maa"] = "日常跑着"
-				dailySet = true
 			case t.State == "done" && t.Day == day:
 				st["maa"], st["health"] = "日常完成", "OK"
 				doneN++
-				dailySet = true
 			case t.State == "failed" && t.Day == day:
 				st["maa"] = "日常失败"
-				dailySet = true
 			}
 			st["note"] = t.Note
 		}
-		// 常驻肉鸽机：日常没在跑/没完成时，主状态就是肉鸽
+		// 常驻肉鸽机：肉鸽才是主状态；日常状态另存一个字段（两者本来就能同时存在）
 		if a.RogueTask != "" {
 			if l := r.lanes[a.ID]; l != nil {
 				rs := l.status()
-				if !dailySet {
-					st["maa"] = rs
+				if dv, ok := st["maa"].(string); ok && dv != "待跑" {
+					st["daily"] = dv
 				}
+				st["maa"] = rs
 				if rs == "肉鸽跑着" && r.logAgeMin(a) < 5 {
 					st["health"] = "OK"
 				}

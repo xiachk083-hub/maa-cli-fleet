@@ -165,6 +165,12 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			sleepInterruptible(l, 60*time.Second)
 			continue
 		}
+		// 抢跑：暂停信号在起机过程里到了 → 立刻把这把收回去，别和日常抢设备
+		if l.isPaused() {
+			killMaa(run)
+			sleepInterruptible(l, 2*time.Second)
+			continue
+		}
 		l.setRun(run)
 		l.setNote("肉鸽跑着")
 		r.upsertRogueTask(a, "running", "肉鸽跑着")
