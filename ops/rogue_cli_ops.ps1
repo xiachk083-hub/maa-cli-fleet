@@ -664,9 +664,10 @@ function Fix-Machine($m) {
 # ---------------------------------------------------------------------------
 switch ($Cmd.ToLower()) {
   "status" { Show-Status }
-  "run"    { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) {
-               if (-not $Task) { Log "run 需要任务名：ops.ps1 run <machine> <taskname>"; break }
-               Start-One $m $Task } }
+  "run"    { $runTask = if ($Task) { $Task } else { $TaskKind }    # 任务名可给在位置 3 或 4
+             foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) {
+               if (-not $runTask) { Log "run 需要任务名：ops.ps1 run <machine> <taskname>"; break }
+               Start-One $m $runTask } }
   "daily"  { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) { Start-One $m $m.Daily } }
   "rogue"  { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) { Start-One $m $m.Rogue } }
   # chain：日常跑完自动接肉鸽（两个功能仍是独立任务文件）——后台 worker，不占终端
