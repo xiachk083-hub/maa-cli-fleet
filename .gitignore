@@ -39,3 +39,7 @@ config/profiles/txwy.toml
 
 # Go 构建产物
 dist/
+
+# center 运行态
+center/*.out
+center/*.err
