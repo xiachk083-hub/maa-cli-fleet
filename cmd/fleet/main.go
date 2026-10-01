@@ -22,6 +22,7 @@ import (
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/gen"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/node"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/runner"
+	"github.com/xiachk083-hub/maa-cli-fleet/internal/setup"
 )
 
 const version = "0.1.0"
@@ -101,6 +102,18 @@ func main() {
 			os.Exit(1)
 		}
 		n.Run()
+	case "setup":
+		o := setup.Options{
+			Root:    flagValue(args, "-root", root),
+			BinDir:  flagValue(args, "-bin", ""),
+			DataDir: flagValue(args, "-data", ""),
+			Channel: flagValue(args, "-channel", "stable"),
+			Force:   hasFlag(args, "-force"),
+		}
+		if err := setup.Run(o); err != nil {
+			fmt.Fprintln(os.Stderr, "setup 失败：", err)
+			os.Exit(1)
+		}
 	case "version", "-v", "--version":
 		fmt.Printf("fleet %s (root=%s)\n", version, root)
 	case "help", "-h", "--help":
@@ -117,6 +130,10 @@ func usage() {
 
 用法：
   fleet center [-addr 0.0.0.0:8790] [-state <目录>] [-token <密钥>]
+  fleet setup  [-root <项目>] [-data <MAA_DATA_DIR>] [-force] [-channel stable]
+  fleet runner [-conf <runner.json>] [-status] [-once] [-enqueue k:id] [-cancel key]
+  fleet node   [-conf <conf.json>]
+  fleet gen    [-automas <AUTO-MAS 目录>] [-dry]
   fleet version
 
 根目录（自动定位）：exe 所在目录；可用 FLEET_ROOT 覆盖。
