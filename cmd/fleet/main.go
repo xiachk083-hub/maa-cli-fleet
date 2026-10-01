@@ -110,6 +110,13 @@ func main() {
 			Channel: flagValue(args, "-channel", "stable"),
 			Force:   hasFlag(args, "-force"),
 		}
+		if hasFlag(args, "-direct") {
+			if err := setup.Direct(o.Root, o.DataDir); err != nil {
+				fmt.Fprintln(os.Stderr, "setup -direct 失败：", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if err := setup.Run(o); err != nil {
 			fmt.Fprintln(os.Stderr, "setup 失败：", err)
 			os.Exit(1)

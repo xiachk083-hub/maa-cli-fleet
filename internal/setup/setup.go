@@ -183,3 +183,157 @@ func exists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
 }
+
+// ---- 直连自装（绕开 maa-cli 的镜像选择：主机到 GitHub 实测 59MB/s，比它的 CN 镜像靠谱）----
+
+const coreReleasesAPI = "https://api.github.com/repos/MaaAssistantArknights/MaaRelease/releases/latest"
+
+// Direct 自己下 MaaCore 包并解压成 maa-cli 期望的布局：<data>\lib（整包）+ <data>\resource（包里的 resource）。
+func Direct(root, dataDir string) error {
+	if dataDir == "" {
+		dataDir = filepath.Join(root, "data")
+	}
+	url, tag, size, err := latestCoreZip()
+	if err != nil {
+		return fmt.Errorf("查 MaaCore 最新版失败：%w", err)
+	}
+	log.Printf("[setup] 直连下载 MaaCore %s（%.0fMB）← %s", tag, float64(size)/1024/1024, url)
+	zipPath := filepath.Join(os.TempDir(), fmt.Sprintf("maacore_%d.zip", time.Now().Unix()))
+	if err := downloadTo(url, zipPath); err != nil {
+		return err
+	}
+	defer os.Remove(zipPath)
+
+	libDir := filepath.Join(dataDir, "lib")
+	resDir := filepath.Join(dataDir, "resource")
+	_ = os.MkdirAll(libDir, 0o755)
+	if err := unzipAll(zipPath, libDir); err != nil {
+		return err
+	}
+	// 把包内 resource 提到 <data>\resource（与 maa-cli 布局一致）
+	if src := filepath.Join(libDir, "resource"); exists(src) {
+		if !exists(resDir) {
+			if err := os.Rename(src, resDir); err != nil { // 同盘秒级
+				log.Printf("[setup] rename 失败（%v），改为复制", err)
+				if err := copyTree(src, resDir); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	log.Printf("[setup] 完成：lib=%s resource=%s", libDir, resDir)
+	return nil
+}
+
+func latestCoreZip() (url, tag string, size int64, err error) {
+	c := &http.Client{Timeout: 30 * time.Second}
+	req, _ := http.NewRequest("GET", coreReleasesAPI, nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "maa-cli-fleet")
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+	var rel struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+			Size int64  `json:"size"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return "", "", 0, err
+	}
+	for _, a := range rel.Assets {
+		if strings.HasSuffix(a.Name, "win-x64.zip") {
+			return a.URL, rel.TagName, a.Size, nil
+		}
+	}
+	return "", rel.TagName, 0, fmt.Errorf("没有 win-x64.zip 资产")
+}
+
+func downloadTo(url, dst string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		return err
+	}
+	log.Printf("[setup] 已下载 %.1fMB", float64(n)/1024/1024)
+	return nil
+}
+
+func unzipAll(zipPath, dstDir string) error {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+	n := 0
+	for _, zf := range zr.File {
+		target := filepath.Join(dstDir, filepath.FromSlash(zf.Name))
+		if zf.FileInfo().IsDir() {
+			_ = os.MkdirAll(target, 0o755)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := zf.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		if err != nil {
+			return err
+		}
+		n++
+	}
+	log.Printf("[setup] 解压 %d 个文件 → %s", n, dstDir)
+	return nil
+}
+
+func copyTree(src, dst string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		t := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(t, 0o755)
+		}
+		in, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		if err := os.MkdirAll(filepath.Dir(t), 0o755); err != nil {
+			return err
+		}
+		out, err := os.Create(t)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, in)
+		return err
+	})
+}
