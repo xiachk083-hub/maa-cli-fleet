@@ -155,7 +155,7 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 		_ = os.WriteFile(filepath.Join(tasksDir, "daily_"+a.ID+".toml"), []byte(body), 0o644)
 		if a.AnnTask != "" {
 			ab := fmt.Sprintf("# %s · %s · 剿灭作战 %s\n", a.ID, a.Name, a.Ann) +
-				fmt.Sprintf("[[tasks]]\nname = \"剿灭作战\"\ntype = \"Annihilation\"\nparams = { stage = \"%s\" }\n", a.Ann)
+				fmt.Sprintf("[[tasks]]\nname = \"剿灭作战\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n", a.Ann)
 			_ = os.WriteFile(filepath.Join(tasksDir, "ann_"+a.ID+".toml"), []byte(ab), 0o644)
 		}
 	}
@@ -190,10 +190,18 @@ func profileToml(client string) string {
 		"address = \"127.0.0.1:16384\"\n" +
 		"config = \"General\"\n\n" +
 		"[resource]\n" +
-		fmt.Sprintf("global_resource = \"%s\"\n", client) +
+		fmt.Sprintf("global_resource = \"%s\"\n", globalResource(client)) +
 		"user_resource = false\n\n" +
 		"[instance_options]\n" +
 		"touch_mode = \"MaaTouch\"\n"
+}
+
+// globalResource：国服（官服/B服）没有 global 覆盖目录，统一用 Official；其余用自身名字。
+func globalResource(client string) string {
+	if client == "Bilibili" || client == "Official" || client == "" {
+		return "Official"
+	}
+	return client
 }
 
 func padLeft(s string, n int) string {

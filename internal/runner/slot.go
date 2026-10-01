@@ -95,10 +95,24 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 		_ = exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run()
 		return false, outFile, fmt.Errorf("任务超时 %d 分钟", r.cfg.TaskTimeoutMin)
 	}
+	// 真核对（G7）：必须有任务链 Completed 行，且没有任务链 Error 行；
+	// 只“秒退”（资源/内核崩、TOML 错）那种什么都没有的，一律判失败。
 	b, _ := os.ReadFile(outFile)
-	if regexp.MustCompile(`\]\s+Error`).Match(b) {
+	completed, errored := 0, 0
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, "] Error") {
+			errored++
+		} else if strings.Contains(line, "] Completed") {
+			completed++
+		}
+	}
+	// 进程级崩溃/配置错误的痕迹也直接判失败
+	hardFail := regexp.MustCompile(`ExceptionCode 0x|Failed to find task file|TOML parse error|unknown variant`).Match(b)
+	if errored > 0 || hardFail || completed == 0 {
+		log.Printf("[judge] %s: completed=%d errored=%d hardFail=%v → 失败", filepath.Base(outFile), completed, errored, hardFail)
 		return false, outFile, nil
 	}
+	log.Printf("[judge] %s: completed=%d → 成功", filepath.Base(outFile), completed)
 	return true, outFile, nil
 }
 
