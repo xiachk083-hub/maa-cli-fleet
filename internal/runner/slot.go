@@ -42,20 +42,6 @@ func (r *Runner) runTask(t *Task) {
 	if err != nil {
 		note = err.Error()
 	}
-	// 主关卡刷不了（活动关关闭等）→ 改刷兜底关卡（剩余理智，默认 1-7）再跑一次
-	if !ok2 && t.Kind == "daily" && acc.Fallback != "" {
-		if fbFile := r.makeFallbackTask(acc); fbFile != "" {
-			log.Printf("[%s] 主关卡失败 → 改刷兜底关卡 %s（%s）", t.Key, acc.Fallback, fbFile)
-			ok3, out3, err3 := r.execMaa(acc, port, fbFile)
-			if err3 == nil && ok3 {
-				ok2, out, note = true, out3, "主关卡不可用，已改刷兜底 "+acc.Fallback
-			} else if err3 != nil {
-				note = err3.Error()
-			} else {
-				note = "兜底关卡 " + acc.Fallback + " 也失败"
-			}
-		}
-	}
 	r.finishTask(t, ok2, note, out)
 	if ok2 {
 		r.mu.Lock()

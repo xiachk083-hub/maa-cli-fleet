@@ -14,6 +14,11 @@ type = "Fight"
 params = { stage = "PA-6", medicine = 0, stone = 0, series = 0 }
 
 [[tasks]]
+name = "刷剩余理智"
+type = "Fight"
+params = { stage = "1-7", medicine = 0, stone = 0, series = 0 }
+
+[[tasks]]
 name = "公开招募"
 type = "Recruit"
 params = { refresh = true, select = [4, 5], confirm = [3, 4], times = 4, skip_robot = true }

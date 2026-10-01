@@ -177,6 +177,9 @@ func dailyToml(client, stage string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true }\n\n", client)
 	fmt.Fprintf(&sb, "[[tasks]]\nname = \"刷理智\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n\n", stage)
+	// 第二步：剩余理智——主关卡单次消耗大，零头用低消耗关卡(1-7)榨干；
+	// 主关卡不可用时（活动关关闭）也是靠它把理智清完。
+	sb.WriteString("[[tasks]]\nname = \"刷剩余理智\"\ntype = \"Fight\"\nparams = { stage = \"1-7\", medicine = 0, stone = 0, series = 0 }\n\n")
 	sb.WriteString("[[tasks]]\nname = \"公开招募\"\ntype = \"Recruit\"\nparams = { refresh = true, select = [4, 5], confirm = [3, 4], times = 4, skip_robot = true }\n\n")
 	sb.WriteString("[[tasks]]\nname = \"基建换班\"\ntype = \"Infrast\"\nparams = { facility = [\"Mfg\",\"Trade\",\"Power\",\"Control\",\"Reception\",\"Office\",\"Dorm\"], drones = \"Money\", threshold = 0.3, dorm_trust_enabled = true }\n\n")
 	sb.WriteString("[[tasks]]\nname = \"信用购物\"\ntype = \"Mall\"\nparams = { visit_friends = true, shopping = true, buy_first = [\"招聘许可\"], blacklist = [\"加急许可\",\"家具零件\"] }\n\n")
