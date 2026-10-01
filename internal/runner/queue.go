@@ -140,6 +140,7 @@ func (r *Runner) applyOp(op Op) bool {
 	case "cancel":
 		if t := r.state.Tasks[key]; t != nil {
 			t.State = "failed"
+			t.Attempts = maxAttempts // 粘住：syncQueue 不会再把它捡回来
 			t.Note = "热改：取消"
 			return true
 		}
