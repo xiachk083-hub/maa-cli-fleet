@@ -106,6 +106,13 @@ func New(cfgPath string) (*Runner, error) {
 			r.state.Tasks = map[string]*Task{}
 		}
 	}
+	// 上次进程被杀/崩了 → 残留的 running 一律回收进队列（否则那些账号当天被跳过）
+	for _, t := range r.state.Tasks {
+		if t.State == "running" {
+			t.State = "queued"
+			t.Note = "重启回收"
+		}
+	}
 	return r, nil
 }
 
@@ -225,7 +232,7 @@ func (r *Runner) Cancel(key string) error {
 // Status 打印队列视图。
 func (r *Runner) Status() {
 	day := gameDay()
-	queued, running, done, failed := 0, 0, 0, 0
+	queued, running, doneD, doneA, failed := 0, 0, 0, 0, 0
 	var pend []string
 	r.mu.Lock()
 	for _, t := range r.state.Tasks {
@@ -236,8 +243,10 @@ func (r *Runner) Status() {
 		case "running":
 			running++
 		case "done":
-			if t.Kind == "daily" && t.Day == day || t.Kind == "ann" && t.Week == weekKey() {
-				done++
+			if t.Kind == "daily" && t.Day == day {
+				doneD++
+			} else if t.Kind == "ann" && t.Week == weekKey() {
+				doneA++
 			}
 		case "failed":
 			failed++
@@ -247,7 +256,7 @@ func (r *Runner) Status() {
 	r.mu.Unlock()
 	sort.Strings(pend)
 	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发位 %d（在跑 %d）", day, total, r.cfg.Slots, running)
-	log.Printf("  今日日常已完成 %d/%d｜队列待跑 %d｜失败累计 %d%s", done, total, queued, failed,
+	log.Printf("  今日日常完成 %d/%d｜本周剿灭完成 %d｜队列待跑 %d｜失败 %d%s", doneD, total, doneA, queued, failed,
 		func() string {
 			if len(pend) > 0 {
 				n := len(pend)
