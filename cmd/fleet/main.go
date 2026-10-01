@@ -12,13 +12,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
+	"strings"
 	"time"
 
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/center"
+	"github.com/xiachk083-hub/maa-cli-fleet/internal/env"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/gen"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/node"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/runner"
@@ -103,6 +105,38 @@ func main() {
 			os.Exit(1)
 		}
 		n.Run()
+	case "env":
+		c := env.Cfg{
+			MuMuManager: flagValue(args, "-mumu", `E:\MuMu Player 12
+x_main\MuMuManager.exe`),
+			Spec:        flagValue(args, "-spec", filepath.Join(root, "env", "desired.json")),
+		}
+		sub := ""
+		if len(args) > 0 {
+			sub = args[0]
+		}
+		emu := flagValue(args, "-emu", "")
+		emus := emuList(root, flagValue(args, "-emus", ""), hasFlag(args, "-from-accounts"))
+		var err error
+		switch sub {
+		case "show":
+			err = env.Show(c, emu)
+		case "set":
+			_, err = env.SetOne(c, emu, flagValue(args, "-key", ""), flagValue(args, "-value", ""))
+		case "restart":
+			env.Restart(c, emu)
+		case "check":
+			_, err = env.Check(c, emus)
+		case "converge":
+			err = env.Converge(c, emus)
+		default:
+			fmt.Fprintln(os.Stderr, "用法：fleet env show|set|restart|check|converge [-emu N] [-emus 1,2,3] [-from-accounts] [-spec 文件]")
+			os.Exit(2)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "env 失败：", err)
+			os.Exit(1)
+		}
 	case "setup":
 		o := setup.Options{
 			Root:    flagValue(args, "-root", root),
@@ -162,6 +196,43 @@ func projectRoot() string {
 }
 
 // flagValue 取 -name value 形式的最小参数解析（避免为骨架引入 flag 面包屑）。
+// emuList：取实例号清单（-emus 显式 / -from-accounts 从账号表取，自动去掉常驻的 5 台）。
+func emuList(root, explicit string, fromAccounts bool) []string {
+	keep := map[string]bool{"25": true, "28": true, "9": true, "34": true, "52": true}
+	var out []string
+	seen := map[string]bool{}
+	if explicit != "" {
+		for _, x := range strings.Split(explicit, ",") {
+			x = strings.TrimSpace(x)
+			if x != "" && !seen[x] {
+				seen[x] = true
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	if fromAccounts {
+		b, err := os.ReadFile(filepath.Join(root, "runner", "accounts.json"))
+		if err == nil {
+			b = []byte(strings.TrimPrefix(string(b), "\uFEFF"))
+			var af struct {
+				Accounts []struct {
+					Emu string `json:"emu"`
+				} `json:"accounts"`
+			}
+			if json.Unmarshal(b, &af) == nil {
+				for _, a := range af.Accounts {
+					if a.Emu != "" && !keep[a.Emu] && !seen[a.Emu] {
+						seen[a.Emu] = true
+						out = append(out, a.Emu)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
 func hasFlag(args []string, name string) bool {
 	for _, a := range args {
 		if a == name {
