@@ -107,8 +107,7 @@ func main() {
 		n.Run()
 	case "env":
 		c := env.Cfg{
-			MuMuManager: flagValue(args, "-mumu", `E:\MuMu Player 12
-x_main\MuMuManager.exe`),
+			MuMuManager: flagValue(args, "-mumu", "E:\\MuMu Player 12\\nx_main\\MuMuManager.exe"),
 			Spec:        flagValue(args, "-spec", filepath.Join(root, "env", "desired.json")),
 		}
 		sub := ""
