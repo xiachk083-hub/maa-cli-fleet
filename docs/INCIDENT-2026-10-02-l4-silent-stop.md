@@ -110,6 +110,12 @@ if ($x -match '^\d+$' -and (Get-Process -Id ([int]$x) -ErrorAction SilentlyConti
 
 实测：注册后试跑 `LastResult=0`，`boot_node.log` 记 `[10-02 06:14:21] 机端已在跑（pid=30120），跳过` —— 无副作用。
 
+### 5.4 runner 侧同类兜底（10-02 06:28，TESTED）
+
+同一个蓝屏把 **runner（`dist\fleet.exe`）** 也带走了（`runner\state.json` 最后写 10-01 22:44:48，中心 `host-mrfz0000-runner.last_seen` 停在 22:44:52），且当时没有任何东西会把它拉回来。按同一套路补齐外部兜底：`ops\boot_runner.ps1` + 计划任务 `FleetRunner-AutoStart` / `FleetRunner-Watchdog`。
+
+实测：触发看门狗 → `boot_runner.log` `[10-02 06:28:29] runner 已拉起 pid=30248 rc=0` → 中心 `last_seen=06:30:54`，4 个槽位（a18/a32/a40/a50）在跑。清单与证据见 `docs/OPS-AUTOSTART.md`。
+
 ## 6. 遗留 / 待办（UNVERIFIED / 未做）
 
 1. **蓝屏本身没修**：`0x3b` 一天两次（`C:\Windows\MEMORY.DMP`）。需要单独立项：查 dump、排除驱动/内存/模拟器高负载；否则同类停摆还会再来（判活修复只保证"再来也能自动恢复"）。
