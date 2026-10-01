@@ -28,6 +28,11 @@ func (r *Runner) runTask(t *Task) {
 	start := time.Now()
 	log.Printf("[%s] 开始 %s（%s，第 %d 次）", t.Key, acc.Name, t.Kind, t.Attempts)
 
+	// 阶梯：第 2 次尝试开始先硬重启模拟器（坏 VM 重试没用，直接换一台干净的）
+	if t.Attempts >= 2 {
+		DeviceHardReset(r.cfg, acc.Emu)
+	}
+
 	port, err := DeviceUp(r.cfg, acc.Emu)
 	if err != nil {
 		r.finishTask(t, false, "设备未就绪："+err.Error(), "")

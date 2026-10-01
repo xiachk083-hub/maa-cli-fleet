@@ -10,12 +10,15 @@ import (
 // 前瞻排班（预约制）：不是"到点发现挤了就停"（后手），而是排班时就把容量算进去。
 //
 // 每个账号两个已知量：
-//   · 截止 = 理智满的时刻（Task.NextDue）
-//   · 耗时 = 上次实际耗时（Task.CostSec；没测过用默认 18 分钟）
+//
+//	· 截止 = 理智满的时刻（Task.NextDue）
+//	· 耗时 = 上次实际耗时（Task.CostSec；没测过用默认 18 分钟）
+//
 // 排班：往后看 Horizon 小时，把账号塞进"那一刻还有空位（< slots）"的最早时段：
-//   · 最早可提前 EarlyWindow（提前刷）
-//   · 最晚可延后 LateWindow（延后刷）
-//   · 再晚就要跨天漏刷 → 插队（priority=1）并尽量早排
+//
+//	· 最早可提前 EarlyWindow（提前刷）
+//	· 最晚可延后 LateWindow（延后刷）
+//	· 再晚就要跨天漏刷 → 插队（priority=1）并尽量早排
 type planItem struct {
 	TaskKey string    `json:"taskKey"`
 	Account string    `json:"account"`

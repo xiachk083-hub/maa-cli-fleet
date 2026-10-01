@@ -154,3 +154,25 @@ func (r *Runner) SweepOrphans() {
 		log.Printf("[sweep] 共关掉 %d 个孤儿模拟器", shut)
 	}
 }
+
+// DeviceHardReset：硬重启模拟器（关机 → 重开 → 等 boot → adb 连上）。
+// 用于"游戏没起来/卡在登录页/黑屏"这类坏状态——重试同一个坏 VM 只会越试越糟。
+func DeviceHardReset(cfg Config, emu string) {
+	log.Printf("[reset] 硬重启模拟器 idx=%s", emu)
+	EmuShutdown(cfg.MumuManager, emu)
+	time.Sleep(8 * time.Second)
+	EmuLaunch(cfg.MumuManager, emu)
+	for i := 0; i < 40; i++ {
+		time.Sleep(5 * time.Second)
+		port := EmuPort(cfg.MumuManager, emu)
+		if port == "" {
+			continue
+		}
+		AdbConnect(cfg.AdbExe, port)
+		if AdbBoot(cfg.AdbExe, port) == "1" {
+			log.Printf("[reset] 模拟器 idx=%s 重启完成（boot=1 @%s）", emu, port)
+			return
+		}
+	}
+	log.Printf("[reset] 模拟器 idx=%s 重启超时（继续按普通流程试）", emu)
+}
