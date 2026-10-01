@@ -65,6 +65,27 @@ func (r *Runner) runTask(t *Task) {
 	if ok2 && t.Kind == "daily" {
 		r.scheduleNextDaily(t, acc)
 		r.saveState()
+		// 同一台机、同一账号：顺手把"本周剿灭"也做了（省一次开关机）
+		ak := "ann:" + acc.ID
+		r.mu.Lock()
+		at := r.state.Tasks[ak]
+		doAnn := at != nil && at.State == "queued" && acc.AnnTask != ""
+		if doAnn {
+			at.State = "running"
+			at.Started = nowStamp()
+			at.Attempts++
+		}
+		r.mu.Unlock()
+		if doAnn {
+			log.Printf("[%s] 同一台机 → 顺手做本周剿灭（省一次上机）", t.Key)
+			aok, aout, aerr := r.execMaa(acc, port, acc.AnnTask)
+			anote := ""
+			if aerr != nil {
+				anote = aerr.Error()
+			}
+			r.finishTask(at, aok, anote, aout)
+			log.Printf("[%s] 剿灭顺手完成 ok=%v", ak, aok)
+		}
 	}
 	DeviceDown(r.cfg, acc.Emu)
 	log.Printf("[%s] 完成 ok=%v 耗时=%s out=%s", t.Key, ok2, time.Since(start).Round(time.Second), filepath.Base(out))
