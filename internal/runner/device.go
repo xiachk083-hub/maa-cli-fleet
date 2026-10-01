@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 var rePort = regexp.MustCompile(`"adb_port":\s*(\d+)`)
 var reStarted = regexp.MustCompile(`"is_process_started":\s*true`)
+var reIndex = regexp.MustCompile(`"index":\s*"(\d+)"`)
 
 // execOut 跑一条命令并拿输出（带超时）。
 func execOut(timeout time.Duration, name string, args ...string) (string, error) {
@@ -117,4 +119,39 @@ func GamePackage(cfg Config, client, port string) string {
 func GameRunning(cfg Config, port, pkg string) string {
 	out, _ := execOut(20*time.Second, cfg.AdbExe, "-s", "127.0.0.1:"+port, "shell", "pidof", pkg)
 	return strings.TrimSpace(out)
+}
+
+// SweepOrphans 关掉"没人在用、也不该常驻"的模拟器。
+// 背景：runner 被杀/崩时，在跑任务的模拟器不会执行停机 → 孤儿累积 → 内存被打满。
+// 判据：keepEmus（常驻的 5 台）与正在跑任务的账号的实例都跳过，其余关机。
+func (r *Runner) SweepOrphans() {
+	keep := map[string]bool{}
+	for _, id := range r.cfg.KeepEmus {
+		keep[id] = true
+	}
+	r.mu.Lock()
+	for _, t := range r.active {
+		if a, ok := r.FindAccount(t.AccountID); ok {
+			keep[a.Emu] = true
+		}
+	}
+	r.mu.Unlock()
+
+	idx := ""
+	shut := 0
+	for _, ln := range strings.Split(MuMuInfo(r.cfg.MumuManager, "all"), "
+") {
+		if m := reIndex.FindStringSubmatch(ln); m != nil {
+			idx = m[1]
+		}
+		if !reStarted.MatchString(ln) || idx == "" || keep[idx] {
+			continue
+		}
+		log.Printf("[sweep] 关掉孤儿模拟器 idx=%s", idx)
+		EmuShutdown(r.cfg.MumuManager, idx)
+		shut++
+	}
+	if shut > 0 {
+		log.Printf("[sweep] 共关掉 %d 个孤儿模拟器", shut)
+	}
 }

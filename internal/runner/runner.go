@@ -39,7 +39,8 @@ type Config struct {
 	CenterURL       string `json:"centerUrl"`
 	CenterTokenFile string `json:"centerTokenFile"`
 	NodeID          string `json:"nodeId"`
-	TaskTimeoutMin  int    `json:"taskTimeoutMin"`
+	TaskTimeoutMin  int      `json:"taskTimeoutMin"`
+	KeepEmus        []string `json:"keepEmus"`
 }
 
 // State 是 runner/state.json：任务台账。
@@ -274,8 +275,14 @@ func (r *Runner) Status() {
 // Run 常驻（once=true 只跑一轮 tick）。
 func (r *Runner) Run(once bool) {
 	log.Printf("调度器启动：并发位 %d，账号 %d 个（任务队列模型）", r.cfg.Slots, len(r.accounts))
+	r.SweepOrphans()
+	tick := 0
 	for {
 		r.Tick()
+		tick++
+		if tick%10 == 0 {
+			r.SweepOrphans()
+		}
 		if once {
 			return
 		}
