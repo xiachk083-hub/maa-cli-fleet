@@ -139,8 +139,7 @@ func (r *Runner) SweepOrphans() {
 
 	idx := ""
 	shut := 0
-	for _, ln := range strings.Split(MuMuInfo(r.cfg.MumuManager, "all"), "
-") {
+	for _, ln := range strings.Split(MuMuInfo(r.cfg.MumuManager, "all"), "\n") {
 		if m := reIndex.FindStringSubmatch(ln); m != nil {
 			idx = m[1]
 		}
