@@ -73,6 +73,21 @@ if ($x -match '^\d+$' -and (Get-Process -Id ([int]$x) -ErrorAction SilentlyConti
 - 中心台账 `center\state\registry.json` → `host-mrfz0000.state.machines.l-4` = `health OK / tunnel 通`；
 - l-4 任务链：`rogue_mizuki_l4`（肉鸽连刷），日常标记 `2026-10-02` 为真实完成。
 
+### 5.1 「重启后自愈」等价演习（10-02 06:10，TESTED）
+
+不真重启机器，只复现当时坏掉的那一段：杀 l-4 worker + 把活着的非 worker 进程（`nvcontainer.exe` pid=4688）PID 写进 `cycle_l-4.pid`，再重启机端（= 重启后 `boot_node.ps1` 走的路）。
+
+```
+[10-02 06:10:43] 机端启动：node=host-mrfz0000（pid=30120）
+[10-02 06:10:44] worker pid 失效（pid=4688 不是 cycle l-4，疑似 PID 复用）→ 清理后重拉
+[10-02 06:10:44] worker 缺失 → 拉起 cycle l-4
+```
+
+新 worker pid=27988 上岗、pid 文件同步更新，l-4 的肉鸽（maa pid=25736）全程未被打断。
+即：**同一故障场景现在会自动恢复**。
+
+另：计划任务 `FleetNode-AutoStart`（Administrator / Interactive / Highest / AtLogon，动作 `boot_node.ps1`）确认在岗，10-01 22:50 蓝屏重启后 **22:50:50 自动触发、LastResult=0** —— 重启→自愈链路的"自动触发"这一环本来就是好的，坏的是 `Ensure-Workers` 的判活。
+
 ## 6. 遗留 / 待办（UNVERIFIED / 未做）
 
 1. **蓝屏本身没修**：`0x3b` 一天两次（`C:\Windows\MEMORY.DMP`）。需要单独立项：查 dump、排除驱动/内存/模拟器高负载；否则同类停摆还会再来（判活修复只保证"再来也能自动恢复"）。
