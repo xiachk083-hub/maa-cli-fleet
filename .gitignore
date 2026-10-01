@@ -36,3 +36,6 @@ config/profiles/Bilibili.toml
 config/profiles/YoStarEN.toml
 config/profiles/YoStarKR.toml
 config/profiles/txwy.toml
+
+# Go 构建产物
+dist/
