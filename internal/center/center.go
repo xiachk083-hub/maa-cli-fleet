@@ -51,7 +51,7 @@ func New(stateDir, token string) (*Server, error) {
 		queues:   map[string]chan *model.Command{},
 	}
 	if s.token == "" {
-		if b, err := os.ReadFile(filepath.Join(stateDir, "token.txt")); err == nil {
+		if b, err := model.ReadFileBOM(filepath.Join(stateDir, "token.txt")); err == nil {
 			s.token = strings.TrimSpace(string(b))
 		}
 	}
@@ -72,7 +72,7 @@ type registryFile struct {
 }
 
 func (s *Server) load() {
-	b, err := os.ReadFile(filepath.Join(s.stateDir, "registry.json"))
+	b, err := model.ReadFileBOM(filepath.Join(s.stateDir, "registry.json"))
 	if err != nil {
 		return
 	}

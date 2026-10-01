@@ -2,10 +2,22 @@
 package model
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 )
+
+// ReadFileBOM 读文件并剥掉 UTF-8 BOM（PowerShell 的 Set-Content -Encoding UTF8 会带 BOM，
+// 而 json.Unmarshal 不吃 BOM —— 这里是所有"读配置/状态"的唯一入口）。
+func ReadFileBOM(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.TrimPrefix(b, []byte{0xEF, 0xBB, 0xBF}), nil
+}
 
 // Result 指令回执。
 type Result struct {

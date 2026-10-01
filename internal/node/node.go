@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/xiachk083-hub/maa-cli-fleet/internal/model"
 	"time"
 )
 
@@ -43,7 +45,7 @@ type Node struct {
 
 // New 读取配置。
 func New(confPath string) (*Node, error) {
-	b, err := os.ReadFile(confPath)
+	b, err := model.ReadFileBOM(confPath)
 	if err != nil {
 		return nil, err
 	}

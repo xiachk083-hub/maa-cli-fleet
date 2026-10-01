@@ -69,7 +69,7 @@ type Runner struct {
 
 // New 加载配置与账号表。
 func New(cfgPath string) (*Runner, error) {
-	b, err := os.ReadFile(cfgPath)
+	b, err := model.ReadFileBOM(cfgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +81,10 @@ func New(cfgPath string) (*Runner, error) {
 		cfg.Slots = 8
 	}
 	r := &Runner{cfg: cfg, state: &State{Accounts: map[string]*AccState{}}, running: map[string]bool{}, httpc: &http.Client{Timeout: 30 * time.Second}}
-	if b, err := os.ReadFile(cfg.CenterTokenFile); err == nil {
+	if b, err := model.ReadFileBOM(cfg.CenterTokenFile); err == nil {
 		r.token = strings.TrimSpace(string(b))
 	}
-	if b, err := os.ReadFile(cfg.AccountsFile); err == nil {
+	if b, err := model.ReadFileBOM(cfg.AccountsFile); err == nil {
 		var af model.AccountsFile
 		if err := json.Unmarshal(b, &af); err == nil {
 			r.accounts = af.Accounts
@@ -93,7 +93,7 @@ func New(cfgPath string) (*Runner, error) {
 			}
 		}
 	}
-	if b, err := os.ReadFile(cfg.StateFile); err == nil {
+	if b, err := model.ReadFileBOM(cfg.StateFile); err == nil {
 		_ = json.Unmarshal(b, r.state)
 		if r.state.Accounts == nil {
 			r.state.Accounts = map[string]*AccState{}
