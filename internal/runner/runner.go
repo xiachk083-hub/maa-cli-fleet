@@ -165,12 +165,32 @@ func (r *Runner) syncQueue() (added int) {
 		if !a.Enabled {
 			continue
 		}
-		// 日常
+		// 日常：自循环——理智快满（nextDueAt 到了）或还没跑过就跑；跑完按理智余量算下次时间
 		dk := "daily:" + a.ID
-		if t := r.state.Tasks[dk]; t == nil || (t.Day != day && !r.working(dk)) || (t.State == "failed" && t.Attempts < maxAttempts) {
-			if t == nil || t.Day != day {
-				r.state.Tasks[dk] = &Task{Key: dk, AccountID: a.ID, Kind: "daily", File: a.Daily,
-					State: "queued", Day: day, Enqueued: nowStamp(), Priority: 10}
+		t := r.state.Tasks[dk]
+		dueNow := false
+		switch {
+		case t == nil:
+			dueNow = true
+		case t.State == "failed" && t.Attempts < maxAttempts:
+			dueNow = true
+		case t.State == "done":
+			if t.NextDue == "" {
+				dueNow = true // 老记录没算过 → 补算
+			} else if ts, err := time.Parse("2006-01-02 15:04:05", t.NextDue); err == nil && time.Now().After(ts) {
+				dueNow = true
+			}
+		}
+		if dueNow && !r.working(dk) {
+			if t == nil {
+				t = &Task{Key: dk, AccountID: a.ID, Kind: "daily", File: a.Daily, Priority: 10}
+				r.state.Tasks[dk] = t
+			}
+			if t.State != "queued" {
+				t.State = "queued"
+				t.Attempts = 0
+				t.Day = day
+				t.Enqueued = nowStamp()
 				added++
 			}
 		}

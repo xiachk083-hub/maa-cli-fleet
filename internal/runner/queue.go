@@ -27,6 +27,9 @@ type Task struct {
 	Note      string `json:"note,omitempty"`
 	OutFile   string `json:"outFile,omitempty"`
 	Priority  int    `json:"priority"` // 越小越先跑
+	NextDue   string `json:"nextDueAt,omitempty"` // 理智快满的时间点（自循环用）
+	SanityCur int    `json:"sanityCur,omitempty"`
+	SanityMax int    `json:"sanityMax,omitempty"`
 }
 
 const maxAttempts = 3

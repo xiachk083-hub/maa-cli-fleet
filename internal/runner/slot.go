@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,10 @@ func (r *Runner) runTask(t *Task) {
 		}
 	}
 	r.finishTask(t, ok2, note, out)
+	if ok2 && t.Kind == "daily" {
+		r.scheduleNextDaily(t, acc)
+		r.saveState()
+	}
 	DeviceDown(r.cfg, acc.Emu)
 	log.Printf("[%s] 完成 ok=%v 耗时=%s out=%s", t.Key, ok2, time.Since(start).Round(time.Second), filepath.Base(out))
 	r.report(t, acc, port, ok2, note)
@@ -131,6 +136,46 @@ func (r *Runner) makeFallbackTask(a model.Account) string {
 		return ""
 	}
 	return name
+}
+
+// readSanity：从 MAA 状态日志读最后一条 current/max sanity。
+func (r *Runner) readSanity(a model.Account) (cur, max int) {
+	p := filepath.Join(r.cfg.DataRoot, "state_"+a.ID, "debug", "asst.log")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return 0, 0
+	}
+	re := regexp.MustCompile(`"current_sanity":(\d+),"max_sanity":(\d+)`)
+	ms := re.FindAllStringSubmatch(string(b), -1)
+	if len(ms) == 0 {
+		return 0, 0
+	}
+	last := ms[len(ms)-1]
+	cur, _ = strconv.Atoi(last[1])
+	max, _ = strconv.Atoi(last[2])
+	return cur, max
+}
+
+// scheduleNextDaily：按"理智还要多久满"排下一次日常（自循环）。
+// 每点理智 6 分钟；留 30 分钟余量提前跑；最短 30 分钟后再来。
+func (r *Runner) scheduleNextDaily(t *Task, a model.Account) {
+	cur, max := r.readSanity(a)
+	if max <= 0 {
+		// 读不到（任务没跑成）→ 2 小时后重试，别死循环
+		t.NextDue = time.Now().Add(2 * time.Hour).Format("2006-01-02 15:04:05")
+		return
+	}
+	left := max - cur
+	if left < 0 {
+		left = 0
+	}
+	mins := left*6 - 30
+	if mins < 30 {
+		mins = 30
+	}
+	t.SanityCur, t.SanityMax = cur, max
+	t.NextDue = time.Now().Add(time.Duration(mins) * time.Minute).Format("2006-01-02 15:04:05")
+	log.Printf("[%s] 理智 %d/%d → 下次日常 %s（%.1f 小时后，自循环）", t.Key, cur, max, t.NextDue, float64(mins)/60)
 }
 
 // finishTask：写任务状态（未超次数的失败会回到 queued，下一轮 Tick 会再捡）。
