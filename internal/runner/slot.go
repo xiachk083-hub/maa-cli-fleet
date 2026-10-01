@@ -41,6 +41,20 @@ func (r *Runner) runTask(t *Task) {
 	if err != nil {
 		note = err.Error()
 	}
+	// 主关卡刷不了（活动关关闭等）→ 改刷兜底关卡（剩余理智，默认 1-7）再跑一次
+	if !ok2 && t.Kind == "daily" && acc.Fallback != "" {
+		if fbFile := r.makeFallbackTask(acc); fbFile != "" {
+			log.Printf("[%s] 主关卡失败 → 改刷兜底关卡 %s（%s）", t.Key, acc.Fallback, fbFile)
+			ok3, out3, err3 := r.execMaa(acc, port, fbFile)
+			if err3 == nil && ok3 {
+				ok2, out, note = true, out3, "主关卡不可用，已改刷兜底 "+acc.Fallback
+			} else if err3 != nil {
+				note = err3.Error()
+			} else {
+				note = "兜底关卡 " + acc.Fallback + " 也失败"
+			}
+		}
+	}
 	r.finishTask(t, ok2, note, out)
 	DeviceDown(r.cfg, acc.Emu)
 	log.Printf("[%s] 完成 ok=%v 耗时=%s out=%s", t.Key, ok2, time.Since(start).Round(time.Second), filepath.Base(out))
@@ -86,6 +100,23 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 		return false, outFile, nil
 	}
 	return true, outFile, nil
+}
+
+// makeFallbackTask：生成"兜底关卡"版任务文件（把 stage 换成 fallback，如 1-7）。
+func (r *Runner) makeFallbackTask(a model.Account) string {
+	src := filepath.Join(r.cfg.ConfigDir, "tasks", a.Daily+".toml")
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return ""
+	}
+	re := regexp.MustCompile(`(stage\s*=\s*)"[^"]*"`)
+	body := re.ReplaceAllString(string(b), `${1}"`+a.Fallback+`"`)
+	name := a.Daily + "_fb"
+	dst := filepath.Join(r.cfg.ConfigDir, "tasks", name+".toml")
+	if os.WriteFile(dst, []byte(body), 0o644) != nil {
+		return ""
+	}
+	return name
 }
 
 // finishTask：写任务状态（未超次数的失败会回到 queued，下一轮 Tick 会再捡）。
