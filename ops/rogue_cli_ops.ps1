@@ -16,6 +16,7 @@ param(
   [Parameter(Position=0)][string]$Cmd = "status",
   [Parameter(Position=1)][string]$Target = "all",
   [Parameter(Position=2)][string]$TaskKind = "",     # 可选：daily / rogue（指定修复哪个功能）
+  [Parameter(Position=3)][string]$Task = "",         # run 命令用：任务文件名（如 daily_a01 / ann_a01）
   [int]$StaleMin = 3
 )
 
@@ -663,6 +664,9 @@ function Fix-Machine($m) {
 # ---------------------------------------------------------------------------
 switch ($Cmd.ToLower()) {
   "status" { Show-Status }
+  "run"    { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) {
+               if (-not $Task) { Log "run 需要任务名：ops.ps1 run <machine> <taskname>"; break }
+               Start-One $m $Task } }
   "daily"  { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) { Start-One $m $m.Daily } }
   "rogue"  { foreach ($m in ($Machines | Where-Object { $Target -eq "all" -or $_.Name -eq $Target })) { Start-One $m $m.Rogue } }
   # chain：日常跑完自动接肉鸽（两个功能仍是独立任务文件）——后台 worker，不占终端

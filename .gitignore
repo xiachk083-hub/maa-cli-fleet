@@ -24,7 +24,11 @@ center/state/
 __pycache__/
 
 # ── 全量账号接管（主机本地生成物，含账号名，不进库）──
-runner/
+runner/accounts.json
+runner/state.json
+runner/result_*.json
+runner/*.log
+runner/*.pid
 config/tasks/daily_a*.toml
 config/tasks/ann_a*.toml
 config/profiles/Official.toml
