@@ -418,6 +418,12 @@ func (r *Runner) Tick() {
 	}
 }
 
+// DispatchNow：任务一结束就立即补位（不等下一轮 30 秒 tick）——"清完自动接下个"。
+func (r *Runner) DispatchNow() {
+	defer func() { _ = recover() }()
+	r.Tick()
+}
+
 // FindAccount 找账号。
 func (r *Runner) FindAccount(id string) (model.Account, bool) {
 	for _, a := range r.accounts {

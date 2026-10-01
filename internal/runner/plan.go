@@ -98,7 +98,7 @@ func (r *Runner) BuildPlan() []planItem {
 			for t := latest; ; t = t.Add(5 * time.Minute) {
 				if load(t, t.Add(cost)) < slots {
 					it.Start, it.End = t, t.Add(cost)
-					if t.After(it.Start.Add(time.Duration(lateWindowM)*time.Minute)) {
+					if t.After(it.Start.Add(time.Duration(lateWindowM) * time.Minute)) {
 						it.Note = "顺延（含跨天）"
 					}
 					placedRanges = append(placedRanges, [2]time.Time{it.Start, it.End})
@@ -108,8 +108,8 @@ func (r *Runner) BuildPlan() []planItem {
 		}
 	}
 	// ---- 自优化：把"离上一批很近却单独开"的任务并进上一批（发车间隔），并反复几轮直到收敛 ----
-	const gapMin = 60      // 与上一批间隔小于此文 = 不值得单独开，并入
-	const maxCluster = 6   // 一批最多几台（cap 与"合适大小"取小）
+	const gapMin = 60    // 与上一批间隔小于此文 = 不值得单独开，并入
+	const maxCluster = 6 // 一批最多几台（cap 与"合适大小"取小）
 	clusterCap := slots
 	if clusterCap > maxCluster {
 		clusterCap = maxCluster

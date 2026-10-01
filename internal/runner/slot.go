@@ -52,8 +52,14 @@ func (r *Runner) runTask(t *Task) {
 		r.scheduleNextDaily(t, acc)
 		r.saveState()
 	}
-	DeviceDown(r.cfg, acc.Emu)
+	// 连锁（和肉鸽机一样）：同实例里还有别的账号要跑 → 不关机，直接接下一个
+	if r.sameInstanceHasWork(acc) {
+		log.Printf("[%s] 同实例还有活儿 → 保持开机，接着排下一个", t.Key)
+	} else {
+		DeviceDown(r.cfg, acc.Emu)
+	}
 	log.Printf("[%s] 完成 ok=%v 耗时=%s out=%s", t.Key, ok2, time.Since(start).Round(time.Second), filepath.Base(out))
+	go r.DispatchNow()
 	r.report(t, acc, port, ok2, note)
 }
 
@@ -97,6 +103,10 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 	completed, errored := 0, 0
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.Contains(line, "] Error") {
+			// 主关卡不可用（活动关关闭等）不算整轮失败：后面的“刷剩余理智”会兜住
+			if strings.Contains(line, "[刷理智]") {
+				continue
+			}
 			errored++
 		} else if strings.Contains(line, "] Completed") {
 			completed++
@@ -110,6 +120,24 @@ func (r *Runner) execMaa(a model.Account, port, task string) (bool, string, erro
 	}
 	log.Printf("[judge] %s: completed=%d → 成功", filepath.Base(outFile), completed)
 	return true, outFile, nil
+}
+
+// sameInstanceHasWork：同一实例里是否还有其他账号的未完成任务（用于“不关机、接着跑”的连锁）。
+func (r *Runner) sameInstanceHasWork(a model.Account) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		o := &r.accounts[i]
+		if o.Emu != a.Emu || o.ID == a.ID || !o.Enabled {
+			continue
+		}
+		for _, k := range []string{"daily:" + o.ID, "ann:" + o.ID} {
+			if t := r.state.Tasks[k]; t != nil && (t.State == "queued" || t.State == "running") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // makeFallbackTask：生成"兜底关卡"版任务文件（把 stage 换成 fallback，如 1-7）。

@@ -1,8 +1,8 @@
 package runner
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"github.com/xiachk083-hub/maa-cli-fleet/internal/model"
 	"log"
 	"os"
