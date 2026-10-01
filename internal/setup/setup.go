@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/xiachk083-hub/maa-cli-fleet/internal/netproxy"
 )
 
 const latestAPI = "https://api.github.com/repos/MaaAssistantArknights/maa-cli/releases/latest"
@@ -96,7 +98,8 @@ func Run(o Options) error {
 
 // latestMaaCliZip 查最新 Release 里的 windows x86_64 资产。
 func latestMaaCliZip() (url, tag string, err error) {
-	c := &http.Client{Timeout: 30 * time.Second}
+	c := netproxy.NewClient()
+	c.Timeout = 30 * time.Second
 	req, _ := http.NewRequest("GET", latestAPI, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "maa-cli-fleet")
@@ -129,7 +132,7 @@ func downloadAndUnzipMaaCli(url, binDir string) error {
 		return err
 	}
 	zipPath := filepath.Join(os.TempDir(), fmt.Sprintf("maa_cli_%d.zip", time.Now().Unix()))
-	resp, err := http.Get(url)
+	resp, err := netproxy.NewClient().Get(url)
 	if err != nil {
 		return err
 	}
@@ -226,7 +229,8 @@ func Direct(root, dataDir string) error {
 }
 
 func latestCoreZip() (url, tag string, size int64, err error) {
-	c := &http.Client{Timeout: 30 * time.Second}
+	c := netproxy.NewClient()
+	c.Timeout = 30 * time.Second
 	req, _ := http.NewRequest("GET", coreReleasesAPI, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "maa-cli-fleet")
@@ -255,7 +259,7 @@ func latestCoreZip() (url, tag string, size int64, err error) {
 }
 
 func downloadTo(url, dst string) error {
-	resp, err := http.Get(url)
+	resp, err := netproxy.NewClient().Get(url)
 	if err != nil {
 		return err
 	}
