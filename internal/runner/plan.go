@@ -3,6 +3,7 @@ package runner
 import (
 	"log"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -106,6 +107,57 @@ func (r *Runner) BuildPlan() []planItem {
 			}
 		}
 	}
+	// ---- 自优化：把"离上一批很近却单独开"的任务并进上一批（发车间隔），并反复几轮直到收敛 ----
+	const gapMin = 60      // 与上一批间隔小于此文 = 不值得单独开，并入
+	const maxCluster = 6   // 一批最多几台（cap 与"合适大小"取小）
+	clusterCap := slots
+	if clusterCap > maxCluster {
+		clusterCap = maxCluster
+	}
+	for pass := 0; pass < 3; pass++ {
+		sort.Slice(items, func(i, j int) bool { return items[i].Start.Before(items[j].Start) })
+		moved := 0
+		for i := range items {
+			it := &items[i]
+			cost := it.End.Sub(it.Start)
+			// 找它前面最近的一批（起点不同但时间接近的组）
+			var prev *planItem
+			for j := 0; j < len(items); j++ {
+				if j == i {
+					continue
+				}
+				o := &items[j]
+				if o.Start.Equal(it.Start) || o.Start.After(it.Start) {
+					continue
+				}
+				gap := it.Start.Sub(o.Start)
+				if gap > 0 && gap <= time.Duration(gapMin)*time.Minute {
+					if prev == nil || o.Start.After(prev.Start) {
+						prev = o
+					}
+				}
+			}
+			if prev == nil {
+				continue
+			}
+			// 想并到 prev 那一批：检查那一批的并发是否放得下，以及不早于自己的最早可提前
+			batchStart := prev.Start
+			if batchStart.Before(it.Start.Add(-time.Duration(earlyWindowM) * time.Minute)) {
+				continue // 提前太多，不划算
+			}
+			if load(batchStart, batchStart.Add(cost)) >= clusterCap {
+				continue // 那一批已经够大
+			}
+			it.Start, it.End = batchStart, batchStart.Add(cost)
+			it.Note = "并入上一批"
+			placedRanges = append(placedRanges, [2]time.Time{it.Start, it.End})
+			moved++
+		}
+		if moved == 0 {
+			break
+		}
+	}
+
 	sort.Slice(items, func(i, j int) bool { return items[i].Start.Before(items[j].Start) })
 
 	r.mu.Lock()
@@ -148,8 +200,20 @@ func (r *Runner) LogPlan() {
 	if n > 12 {
 		n = 12
 	}
-	for _, it := range items[:n] {
-		log.Printf("[plan]   %s  %s → %s（%s）", it.Start.Format("01-02 15:04"), it.Account,
-			it.End.Format("15:04"), it.Note)
+	// 按批次（同一开始时刻）聚合展示
+	i := 0
+	for i < len(items) {
+		batchStart := items[i].Start
+		var names []string
+		for i < len(items) && items[i].Start.Equal(batchStart) {
+			names = append(names, items[i].Account)
+			i++
+		}
+		note := ""
+		if len(items) > 0 && i-1 < len(items) {
+			note = items[i-1].Note
+		}
+		log.Printf("[plan]   批次 %s：%d 台（%s）%s", batchStart.Format("01-02 15:04"), len(names),
+			strings.Join(names, ","), note)
 	}
 }
