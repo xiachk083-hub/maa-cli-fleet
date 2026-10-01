@@ -59,8 +59,7 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 	if b, err := os.ReadFile(filepath.Join(root, "runner", "masks.json")); err == nil {
 		_ = json.Unmarshal(b, &masks)
 	}
-	fmt.Printf("官服掩码载入：%d 个
-", len(masks))
+	fmt.Printf("官服掩码载入：%d 个\n", len(masks))
 
 	raw, err := os.ReadFile(filepath.Join(autoMasDir, "config", "ScriptConfig.json"))
 	if err != nil {
@@ -159,7 +158,7 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 	}
 	for _, a := range accounts {
 		body := fmt.Sprintf("# %s · %s · %s · 刷 %s（由 fleet gen 从 AUTO-MAS 配置生成）\n", a.ID, a.Name, a.Client, a.Stage) +
-			dailyToml(a.Client, a.Stage)
+			dailyToml(a.Client, a.Stage, masks[a.ID])
 		_ = os.WriteFile(filepath.Join(tasksDir, "daily_"+a.ID+".toml"), []byte(body), 0o644)
 		if a.AnnTask != "" {
 			ab := fmt.Sprintf("# %s · %s · 剿灭作战 %s\n", a.ID, a.Name, a.Ann) +
@@ -181,9 +180,14 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 	return nil
 }
 
-func dailyToml(client, stage string) string {
+func dailyToml(client, stage, accountName string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true }\n\n", client)
+	if accountName != "" {
+		// 官服：带上切换账号（掉登录时 MAA 会去"账号管理/登录记录"里按掩码切回来）
+		fmt.Fprintf(&sb, "[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true, account_name = \"%s\" }\n\n", client, accountName)
+	} else {
+		fmt.Fprintf(&sb, "[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true }\n\n", client)
+	}
 	fmt.Fprintf(&sb, "[[tasks]]\nname = \"刷理智\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n\n", stage)
 	// 第二步：剩余理智——主关卡单次消耗大，零头用低消耗关卡(1-7)榨干；
 	// 主关卡不可用时（活动关关闭）也是靠它把理智清完。
