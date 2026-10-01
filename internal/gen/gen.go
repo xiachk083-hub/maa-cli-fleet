@@ -128,6 +128,26 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 			Daily: "daily_" + id, AnnTask: annTask, State: "state_" + id, Enabled: true,
 		})
 	}
+	// 保留已有台账里的 emu 覆盖（手工修正过的不该被 AUTO-MAS 的旧索引冲掉）
+	if b, err := os.ReadFile(filepath.Join(root, "runner", "accounts.json")); err == nil {
+		var old struct {
+			Accounts []model.Account `json:"accounts"`
+		}
+		if json.Unmarshal(b, &old) == nil {
+			keepEmu := map[string]string{}
+			for _, a := range old.Accounts {
+				if a.Emu != "" {
+					keepEmu[a.ID] = a.Emu
+				}
+			}
+			for i := range accounts {
+				if e, ok := keepEmu[accounts[i].ID]; ok {
+					accounts[i].Emu = e
+				}
+			}
+		}
+	}
+
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
 
 	byClient := map[string]int{}
