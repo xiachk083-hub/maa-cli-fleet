@@ -65,7 +65,8 @@ func (r *Runner) runTask(t *Task) {
 	if ok2 && t.Kind == "daily" {
 		r.scheduleNextDaily(t, acc)
 		r.saveState()
-(r.cfg, acc.Emu)
+	}
+	DeviceDown(r.cfg, acc.Emu)
 	log.Printf("[%s] 完成 ok=%v 耗时=%s out=%s", t.Key, ok2, time.Since(start).Round(time.Second), filepath.Base(out))
 	r.report(t, acc, port, ok2, note)
 }
