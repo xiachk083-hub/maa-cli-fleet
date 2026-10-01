@@ -41,6 +41,9 @@ type Config struct {
 	NodeID          string `json:"nodeId"`
 	TaskTimeoutMin  int      `json:"taskTimeoutMin"`
 	KeepEmus        []string `json:"keepEmus"`
+	MaxConcurrent   int      `json:"maxConcurrent"`
+	MinFreeRamMB    int      `json:"minFreeRamMB"`
+	MaxCpuPct       int      `json:"maxCpuPct"`
 }
 
 // State 是 runner/state.json：任务台账。
@@ -58,6 +61,9 @@ type Runner struct {
 	active   map[string]*Task
 	httpc    *http.Client
 	token    string
+
+	cpuIdle, cpuKern, cpuUser uint64
+	cpuValid                  bool
 }
 
 // New 加载配置/账号/状态（失败要吵：今天吃过"静默加载失败"的亏）。
@@ -75,6 +81,15 @@ func New(cfgPath string) (*Runner, error) {
 	}
 	if cfg.TaskTimeoutMin <= 0 {
 		cfg.TaskTimeoutMin = 75
+	}
+	if cfg.MaxConcurrent <= 0 {
+		cfg.MaxConcurrent = 12
+	}
+	if cfg.MinFreeRamMB <= 0 {
+		cfg.MinFreeRamMB = 6000
+	}
+	if cfg.MaxCpuPct <= 0 {
+		cfg.MaxCpuPct = 85
 	}
 	r := &Runner{cfg: cfg, state: &State{Tasks: map[string]*Task{}},
 		running: map[string]bool{}, active: map[string]*Task{}, httpc: &http.Client{Timeout: 30 * time.Second}}
@@ -256,7 +271,7 @@ func (r *Runner) Status() {
 	total := len(r.accounts)
 	r.mu.Unlock()
 	sort.Strings(pend)
-	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发位 %d（在跑 %d）", day, total, r.cfg.Slots, running)
+	log.Printf("任务队列｜游戏日 %s｜账号 %d｜并发上限 %d（在跑 %d）｜资源 空闲 %dMB / CPU %.0f%%", day, total, r.cfg.MaxConcurrent, running, FreeRAMMB(), r.CPUPercent())
 	log.Printf("  今日日常完成 %d/%d｜本周剿灭完成 %d｜队列待跑 %d｜失败 %d%s", doneD, total, doneA, queued, failed,
 		func() string {
 			if len(pend) > 0 {
@@ -316,8 +331,29 @@ func (r *Runner) Tick() {
 	added := r.syncQueue()
 	r.saveState()
 
+	// 资源闸门：占用过高就停止入队（等在场任务收工、资源回落）
+	freeMB := FreeRAMMB()
+	cpuPct := r.CPUPercent()
 	r.mu.Lock()
-	free := r.cfg.Slots - len(r.active)
+	running := len(r.active)
+	r.mu.Unlock()
+	if gated, why := r.Gated(freeMB, cpuPct); gated {
+		r.mu.Lock()
+		waiting := 0
+		for _, t := range r.state.Tasks {
+			if t.State == "queued" {
+				waiting++
+			}
+		}
+		r.mu.Unlock()
+		if running > 0 || waiting > 0 {
+			log.Printf("[tick] 资源闸门（%s）：空闲内存 %dMB / CPU %.0f%% → 暂停入队（在跑 %d，待跑 %d）", why, freeMB, cpuPct, running, waiting)
+		}
+		return
+	}
+
+	r.mu.Lock()
+	free := r.cfg.MaxConcurrent - running
 	var ready []*Task
 	for _, t := range r.state.Tasks {
 		if t.State == "queued" && !r.running[t.AccountID] {
