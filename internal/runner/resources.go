@@ -59,6 +59,9 @@ func (r *Runner) CPUPercent() float64 {
 	return 100 * float64(total-di) / float64(total)
 }
 
+// Critical 是否到了危险水位（低于此值主机可能开始抖动/崩）。
+func (r *Runner) Critical(freeMB uint64) bool { return freeMB > 0 && freeMB < 2500 }
+
 // Gated 资源是否紧张到该停止入队。
 func (r *Runner) Gated(freeMB uint64, cpuPct float64) (bool, string) {
 	if r.cfg.MinFreeRamMB > 0 && freeMB < uint64(r.cfg.MinFreeRamMB) {

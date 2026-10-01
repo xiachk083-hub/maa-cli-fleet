@@ -337,6 +337,9 @@ func (r *Runner) Tick() {
 	r.mu.Lock()
 	running := len(r.active)
 	r.mu.Unlock()
+	if r.Critical(freeMB) {
+		log.Printf("[危险] 空闲内存仅 %dMB —— 已停止入队（建议减并发或加内存）", freeMB)
+	}
 	if gated, why := r.Gated(freeMB, cpuPct); gated {
 		r.mu.Lock()
 		waiting := 0
