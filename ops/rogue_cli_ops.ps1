@@ -292,7 +292,12 @@ function Test-OutError($outFile) {
   # summary 行形如 "[任务名] 10:00:00 - 10:05:00 (5m) Error"
   if (-not (Test-Path $outFile)) { return $true }
   $txt = Get-Content -Path $outFile -Raw -Encoding UTF8
-  return [bool]($txt -match '\]\s+Error')
+  if (-not $txt) { return $true }                     # 空输出 = 进程没跑起来就退了，不能算成功
+  if ($txt -match '\]\s+Error') { return $true }
+  # 连 summary 时间行（"04:58:24 - 05:00:22"）都没有 = 没跑完，同样不算成功。
+  # （2026-10-02 05:37 l-4 设备没连上，日常空转 8 秒退出被误判成功，把当天日常标记成了"已完成"）
+  if ($txt -notmatch '\]\s+\d{1,2}:\d{2}:\d{2}\s+-\s+\d{1,2}:\d{2}:\d{2}') { return $true }
+  return $false
 }
 
 # 游戏日（以 04:00 为界）：用于判断"今日日常是否已完成"

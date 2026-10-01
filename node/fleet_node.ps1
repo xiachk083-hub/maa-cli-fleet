@@ -77,7 +77,18 @@ function Ensure-Workers($conf) {
     $alive = $false
     if (Test-Path $pidFile) {
       $x = (Get-Content $pidFile -Raw).Trim()
-      if ($x -match '^\d+$' -and (Get-Process -Id ([int]$x) -ErrorAction SilentlyContinue)) { $alive = $true }
+      # 只判 PID 存在不够：系统会复用 PID（重启/蓝屏后尤其常见，nvcontainer 之类会顶掉旧号），
+      # 一旦撞上，worker 死了也永远被当成"在岗"——2026-10-01 22:52 蓝屏重启后 l-4 就这样静默掉了 7 小时。
+      # 必须确认拿到该 PID 的确实是我们的 worker：powershell.exe 且命令行含 rogue_cli_ops.ps1 <kind>-worker <machine>。
+      if ($x -match '^\d+$') {
+        $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$x) -ErrorAction SilentlyContinue
+        if ($p -and ($p.Name -ieq "powershell.exe") -and ($p.CommandLine -like ("*rogue_cli_ops.ps1*" + $kind + "-worker*")) -and ($p.CommandLine -like ("*" + $machine + "*"))) {
+          $alive = $true
+        } else {
+          Log ("worker pid 失效（pid=" + $x + " 不是 " + $kind + " " + $machine + "，疑似 PID 复用）→ 清理后重拉")
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+        }
+      }
     }
     if ($alive) { continue }
     Log ("worker 缺失 → 拉起 " + $kind + " " + $machine)
