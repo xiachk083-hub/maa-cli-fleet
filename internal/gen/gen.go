@@ -181,8 +181,11 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 			dailyToml(a.Client, a.Stage, masks[a.ID])
 		_ = os.WriteFile(filepath.Join(tasksDir, "daily_"+a.ID+".toml"), []byte(body), 0o644)
 		if a.AnnTask != "" {
+			// stage 必须用 MaaCore 认识的任务名，不能用中文显示名：
+			// 实测（2026-10-02，maa-cli 0.7.5）中文名 / LungmenDowntown / Chernobog 都会
+			// “Failed to add task … Unknown task”，只有 \<关卡\>@Annihilation 能过加载。
 			ab := fmt.Sprintf("# %s · %s · 剿灭作战 %s\n", a.ID, a.Name, a.Ann) +
-				fmt.Sprintf("[[tasks]]\nname = \"剿灭作战\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n", a.Ann)
+				fmt.Sprintf("[[tasks]]\nname = \"剿灭作战\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n", annStageID(a.Ann))
 			_ = os.WriteFile(filepath.Join(tasksDir, "ann_"+a.ID+".toml"), []byte(ab), 0o644)
 		}
 	}
@@ -198,6 +201,20 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 	_ = os.WriteFile(filepath.Join(runnerDir, "accounts.json"), b, 0o644)
 	fmt.Printf("已写：%d 份日常 + %d 份剿灭 + profile %d 份 + accounts.json\n", len(accounts), annN, len(byClient))
 	return nil
+}
+
+// annStageID 把中文显示名映射到 MaaCore 认识的任务名。
+// 实测（2026-10-02，maa-cli 0.7.5）：Fight 的 stage 写中文名不动，必须写 resource 里的任务名。
+func annStageID(name string) string {
+	switch name {
+	case "龙门市区":
+		return "LungmenDowntown@Annihilation"
+	case "龙门外环":
+		return "LungmenOutskirts@Annihilation"
+	case "切尔诺伯格":
+		return "Chernobog@Annihilation"
+	}
+	return name
 }
 
 func dailyToml(client, stage, accountName string) string {
