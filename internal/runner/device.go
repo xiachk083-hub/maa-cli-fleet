@@ -31,6 +31,35 @@ func MuMuInfo(mgr, idx string) string {
 	return out
 }
 
+// mumuInst 是 info -v all 里单个实例的形状。
+// 注意：JSON 字段是字母序，adb_port / is_process_started 都排在 index **前面**，
+// 所以绝不能对整个输出按行解析（会把属性算到上一个实例头上 → SweepOrphans 关错模拟器，2026-10-02 修）。
+// 也不能用 json.Unmarshal：实例名里有未转义字符，官方输出不是严格 JSON。
+// 就按对象切块（"<idx>": { ... }），块内取字段。
+type mumuInst struct {
+	Index   string
+	AdbPort string
+	Started bool
+}
+
+var reObj = regexp.MustCompile(`(?s)"(\d+)":\s*\{(.*?)\}`)
+
+// MuMuAll 解析 info -v all：index → 实例信息。
+func MuMuAll(mgr string) map[string]mumuInst {
+	out, _ := execOut(60*time.Second, mgr, "info", "-v", "all")
+	m := map[string]mumuInst{}
+	for _, mm := range reObj.FindAllStringSubmatch(out, -1) {
+		key, body := mm[1], mm[2]
+		inst := mumuInst{Index: key}
+		if s := rePort.FindStringSubmatch(body); len(s) == 2 {
+			inst.AdbPort = s[1]
+		}
+		inst.Started = reStarted.MatchString(body)
+		m[key] = inst
+	}
+	return m
+}
+
 // EmuRunning 实例是否在跑。
 func EmuRunning(mgr, idx string) bool {
 	return reStarted.MatchString(MuMuInfo(mgr, idx))
@@ -135,15 +164,16 @@ func (r *Runner) SweepOrphans() {
 			keep[a.Emu] = true
 		}
 	}
+	for i := range r.accounts { // 常驻（肉鸽）机的实例永远不许当孤儿关掉
+		if r.accounts[i].RogueTask != "" {
+			keep[r.accounts[i].Emu] = true
+		}
+	}
 	r.mu.Unlock()
 
-	idx := ""
 	shut := 0
-	for _, ln := range strings.Split(MuMuInfo(r.cfg.MumuManager, "all"), "\n") {
-		if m := reIndex.FindStringSubmatch(ln); m != nil {
-			idx = m[1]
-		}
-		if !reStarted.MatchString(ln) || idx == "" || keep[idx] {
+	for idx, inst := range MuMuAll(r.cfg.MumuManager) {
+		if !inst.Started || idx == "" || keep[idx] {
 			continue
 		}
 		log.Printf("[sweep] 关掉孤儿模拟器 idx=%s", idx)

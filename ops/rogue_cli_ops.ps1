@@ -181,9 +181,31 @@ function Get-GamePid($m) {
   return $r
 }
 
+function Get-LivePortMap {
+  # 本机模式：一次 info -v all 拿到所有实例的实时 adb 端口（emu index -> port）
+  # 用来纠正"配置里的端口早漂了"导致的体检误报（隧道断/maa 无）。
+  # 必须按 JSON 解析：字段是字母序，adb_port/is_process_started 排在 index 前面，
+  # 按行解析会把属性算到上一个实例头上（runner 的 SweepOrphans 就踩过这个坑）。
+  $map = @{}
+  if (-not $LocalMode) { return $map }
+  try {
+    $out = & 'E:\MuMu Player 12\nx_main\MuMuManager.exe' info -v all 2>$null | Out-String
+    # 不能 ConvertFrom-Json：实例名里有未转义字符，官方输出不是严格 JSON。
+    # 按对象切块（"<idx>": { ... }），块内取字段 —— 不受字段顺序/编码影响。
+    foreach ($mm in [regex]::Matches($out, '(?s)"(\d+)":\s*\{(.*?)\}')) {
+      $body = $mm.Groups[2].Value
+      $mp = [regex]::Match($body, '"adb_port":\s*(\d+)')
+      if ($mp.Success -and $body -match '"is_process_started":\s*true') { $map[$mm.Groups[1].Value] = $mp.Groups[1].Value }
+    }
+  } catch { }
+  return $map
+}
 function Show-Status {
   Log "===== 体检 ====="
+  $live = Get-LivePortMap
   foreach ($m in $Machines) {
+    # 端口漂移就以实测为准（只改本次内存副本；worker 的 recover 会把新端口写回机器表）
+    if ($live.ContainsKey([string]$m.Emu) -and $live[[string]$m.Emu] -ne $m.Local) { $m.Local = $live[[string]$m.Emu] }
     $proc  = Get-MaaProc $m
     $age   = Get-LogAgeMin $m
     $tun   = Test-Tunnel $m
@@ -258,13 +280,23 @@ function Watch-Once($m) {
       Log ("[{0}] 自检：设备不可达（boot={1}）→ 第 {2}/3 次设备级恢复（启动模拟器+隧道+发任务）" -f $m.Name, $boot, $cnt0)
       Recover-Machine $m
     } elseif ($cnt0 -eq 4) {
+      if (-not $script:DeviceCoolAt) { $script:DeviceCoolAt = @{} }
+      $script:DeviceCoolAt[$m.Name] = Get-Date
       Log ("[{0}] 自检：设备级恢复已尝试 3 次仍不可达 → 冷却 30 分钟后重试" -f $m.Name)
+    } elseif ($script:DeviceCoolAt -and $script:DeviceCoolAt[$m.Name] -and ((Get-Date) - $script:DeviceCoolAt[$m.Name]).TotalMinutes -gt 30) {
+      # 冷却结束 → 重新给 3 次机会。
+      # （旧版 case≥5 什么都不做："冷却 30 分钟后重试"是句空话，设备一直起不来就永久静默放弃
+      #   —— l-1 在 2026-10-02 10:57 后就是这样停的）
+      $script:StuckFixCount[$m.Name] = 0
+      $script:DeviceCoolAt.Remove($m.Name) | Out-Null
+      Log ("[{0}] 自检：设备级冷却结束 → 重新尝试设备级恢复" -f $m.Name)
+      Recover-Machine $m
     }
     return $true
   }
   # 异常 → 关游戏重开 + 重发当前任务；连续 3 次仍异常 → 冷却 30 分钟后再试
   $why = Test-Stuck $m
-  if (-not $why) { $script:StuckFixCount[$m.Name] = 0; $script:StuckGiveUpAt.Remove($m.Name) | Out-Null; return $false }
+  if (-not $why) { $script:StuckFixCount[$m.Name] = 0; $script:StuckGiveUpAt.Remove($m.Name) | Out-Null; if ($script:DeviceCoolAt) { $script:DeviceCoolAt.Remove($m.Name) | Out-Null }; return $false }
   $cnt = ([int]$script:StuckFixCount[$m.Name]) + 1
   if ($cnt -gt 3) {
     $give = $script:StuckGiveUpAt[$m.Name]
@@ -483,7 +515,19 @@ Write-Output ('LAUNCH_PID=' + $r.ProcessId)
   Log ("[{0}] recover：adb 端口 = {1}" -f $m.Name, $hostPort)
   if ($LocalMode) {
     # 本机模式：无隧道；直接 adb connect（实测端口优先，防端口漂移）
-    if ($hostPort -ne $m.Local) { Log ("[{0}] recover：端口漂移 配置={1} 实测={2}（本次按实测走）" -f $m.Name, $m.Local, $hostPort); $m.Local = [string]$hostPort }
+    if ($hostPort -ne $m.Local) {
+      Log ("[{0}] recover：端口漂移 配置={1} 实测={2}（本次按实测走，并写回机器表）" -f $m.Name, $m.Local, $hostPort)
+      $m.Local = [string]$hostPort
+      # 写回 fleet.local.json（否则体检/上报用旧端口，会误报"隧道断/maa无"）。
+      # 临时文件 + 替换，避免读方读到半个文件。
+      try {
+        $fl2 = Get-Content $FleetLocal -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($mm in $fl2.machines) { if ($mm.name -eq $m.Name) { $mm.local = [string]$hostPort } }
+        $tmpFl = $FleetLocal + ".tmp"
+        [IO.File]::WriteAllText($tmpFl, ($fl2 | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -Force $tmpFl $FleetLocal
+      } catch { Log ("[{0}] recover：写回机器表失败（不影响本次）" -f $m.Name) }
+    }
     & $Adb connect "127.0.0.1:$($m.Local)" 2>$null | Out-Null
     Start-Sleep -Seconds 2
     $lboot = (& $Adb -s "127.0.0.1:$($m.Local)" shell getprop sys.boot_completed 2>$null | Out-String).Trim()

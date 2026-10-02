@@ -88,6 +88,17 @@
 改成正则核对 summary 时间行（`] HH:MM:SS - HH:MM:SS (耗时) Completed|Error`），保留"刷理智 Error 不算整轮失败"的容错。
 修后实测：`[judge] daily_a46_...out: completed=6 → 成功`、`daily_l4: completed=6 → 成功`、`daily:a40/a49 → 成功`。
 
+### 12 小时运行暴露的问题 + 修复（10-02 20:2x，TESTED）
+
+| # | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | l-4 肉鸽 14:03 停摆，车道 6 小时没反应 | 看护循环里 `case <-done` 已收过 `Wait()` 的值，后面又 `<-done` **永久阻塞** | 记 `exited` 标志，自己退的不再收第二次；顺带加"看护中"心跳行（每 10 分钟） |
+| 2 | l-1 10:57 起静默不动 | PS `Watch-Once` 设备恢复计数 >4 后**什么都不做**（"冷却 30 分钟后重试"是空话） | 冷却到期重置计数并重试 |
+| 3 | 每 20 分钟"关孤儿 idx=13"，且会**关错模拟器** | `info -v all` 是 JSON，字段字母序（adb_port/is_process_started 在 index 前）→ 按行解析把属性算到**上一个实例**头上 | 改为按对象切块正则解析（不能用 json.Unmarshal：实例名带未转义字符） |
+| 4 | 体检误报 l-1/l-4"隧道断/maa 无" | 模拟器重启后 adb 端口漂移（16672→16673、17184→17185），机器表还是旧端口 | worker 的 recover 把新端口写回 `fleet.local.json`；体检用 `info -v all` 的实时端口 |
+| 5 | 进程活着但卡死时没人管 | 外层看门狗只看"进程在不在" | runner 每轮 tick 写 `heartbeat.txt`、每个肉鸽车道写 `hb_rogue_<id>.txt`；`boot_runner.ps1` 发现心跳停 >6/15 分钟就杀掉重拉；`boot_node.ps1` 用体检日志新鲜度做同样的事 |
+
+
 ## 待办
 
 

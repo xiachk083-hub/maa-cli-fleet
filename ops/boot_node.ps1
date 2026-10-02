@@ -25,7 +25,21 @@ Start-Sleep -Seconds 20
 
 $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object { $_.CommandLine -like "*fleet_node.ps1*" }
-if ($running) { BLog ("机端已在跑（pid=" + (@($running)[0].ProcessId) + "），跳过"); exit 0 }
+if ($running) {
+  # 判活两道：进程在 + 还在干活。
+  # node 每轮都会跑 ops status（往 rogue_cli_ops.log 追加体检行）→ 日志太久没新行 = 主循环卡死
+  # （2026-10-02 踩过：进程活着但车道卡死，只看进程的看门狗看不见）
+  $opsLog = Join-Path $OpsDir "rogue_cli_ops.log"
+  $age = 0.0; $stale = $false
+  if (Test-Path $opsLog) {
+    $age = ((Get-Date) - (Get-Item $opsLog).LastWriteTime).TotalMinutes
+    if ($age -gt 8) { $stale = $true }
+  }
+  if (-not $stale) { BLog ("机端已在跑（pid=" + (@($running)[0].ProcessId) + "，心跳 " + [math]::Round($age, 1) + " 分钟前），跳过"); exit 0 }
+  BLog ("机端进程在（pid=" + (@($running)[0].ProcessId) + "）但体检日志停了 " + [math]::Round($age, 1) + " 分钟 → 判卡死，杀掉重拉")
+  foreach ($p in $running) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 3
+}
 
 # 用 WMI 拉起（脱离本进程树，计划任务结束也不影响）
 $cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $NodeScript + '" run'

@@ -340,6 +340,7 @@ func (r *Runner) Run(once bool) {
 	tick := 0
 	for {
 		r.Tick()
+		r.beat() // 心跳文件：外部看门狗据此识别“进程活着但卡死”
 		tick++
 		if tick%5 == 0 {
 			r.BuildPlan() // 前瞻排班：把后面的活儿按容量铺开
@@ -361,6 +362,12 @@ func (r *Runner) Run(once bool) {
 		}
 		time.Sleep(30 * time.Second)
 	}
+}
+
+// beat：写心跳文件（外部看门狗用它判断"进程活着但卡死"：文件 mtime 太旧 = 主循环没在跑）。
+func (r *Runner) beat() {
+	p := filepath.Join(filepath.Dir(r.cfg.StateFile), "heartbeat.txt")
+	_ = os.WriteFile(p, []byte(time.Now().Format("2006-01-02 15:04:05")+"\n"), 0o644)
 }
 
 func (r *Runner) drain(timeout time.Duration) {

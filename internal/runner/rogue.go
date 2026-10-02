@@ -138,6 +138,7 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			time.Sleep(3 * time.Second)
 			continue
 		}
+		r.laneBeat(a)
 
 		// 设备：起机 → 等端口 → adb → boot（常驻机永不关机）
 		port, err := DeviceUp(r.cfg, a.Emu)
@@ -155,8 +156,17 @@ func (r *Runner) residentLoop(l *rogueLane) {
 		}
 		fails = 0
 
-		// 关游戏再发车：肉鸽被日常打断过/上次被杀，留着的画面会让 MAA 从脏状态起步
+		// 关游戏再发车：肉鸽被日常打断过/上次被杀，留着的画面会让 MAA 从脏状态起步。
+		// 但暂停信号随时可能到 —— 到就不动手（别人正在跑日常，不能 force-stop 抢设备）
+		if l.isPaused() {
+			sleepInterruptible(l, 2*time.Second)
+			continue
+		}
 		forceStopGame(r.cfg, port, GamePackage(r.cfg, a.Client, port))
+		if l.isPaused() {
+			sleepInterruptible(l, 2*time.Second)
+			continue
+		}
 
 		run, err := r.startMaa(a, port, a.RogueTask)
 		if err != nil {
@@ -177,38 +187,52 @@ func (r *Runner) residentLoop(l *rogueLane) {
 		log.Printf("[rogue:%s] 已发车 %s（pid=%d，日志 %s）", a.ID, a.RogueTask, run.cmd.Process.Pid, filepath.Base(run.out))
 
 		// 看护：进程退出 / 被暂停 / 日志卡死
+		// 注意：Wait() 的返回值只能收一次！自己退出（case 收到）就不能再 `<-done`，
+		// 否则永久阻塞（2026-10-02 14:03 l-4 肉鸽自然退出后车道卡死 6 小时，就是这个坑）。
 		done := make(chan error, 1)
 		go func() { done <- run.cmd.Wait() }()
-		lastMod := time.Now() // 从"现在"起算新鲜度（asst.log 是跨次追加的，不能用文件 mtime 起步）
+		lastMod := time.Now() // 从“现在”起算新鲜度（asst.log 是跨次追加的，不能用文件 mtime 起步）
+		lastBeat := time.Now()
 		reason := ""
-	watch:
+		exited := false
 		for {
 			select {
 			case <-done:
+				exited = true
 				reason = "任务退出"
-				break watch
 			default:
+			}
+			if exited {
+				break
 			}
 			if l.stopped() {
 				killMaa(run)
 				reason = "收到停止"
-				break watch
+				break
 			}
 			if l.isPaused() {
 				killMaa(run)
 				reason = "日常插队（暂停）"
-				break watch
+				break
 			}
+			r.laneBeat(a)
 			if mt := r.logModTime(a); mt.After(lastMod) {
 				lastMod = mt
 			} else if time.Since(lastMod) > rogueStaleMin*time.Minute {
 				killMaa(run)
 				reason = fmt.Sprintf("日志 %.0f 分钟没更新（卡死）", time.Since(lastMod).Minutes())
-				break watch
+				break
+			}
+			// 心跳（每 ~10 分钟一条）：车道没声音不代表在干活，留个心跳好排查
+			if time.Since(lastBeat) > 10*time.Minute {
+				log.Printf("[rogue:%s] 看护中：maa pid=%d，日志 %.1f 分钟前更新", a.ID, run.cmd.Process.Pid, r.logAgeMin(a))
+				lastBeat = time.Now()
 			}
 			time.Sleep(20 * time.Second)
 		}
-		<-done // 收尸
+		if !exited {
+			<-done // 是我们杀的 → 等它真的收尸；自己退的上面已经收到，不能再收一次
+		}
 		l.setRun(nil)
 		l.restarts++
 
@@ -290,6 +314,13 @@ func forceStopGame(cfg Config, port, pkg string) {
 		return
 	}
 	_, _ = execOut(20*time.Second, cfg.AdbExe, "-s", "127.0.0.1:"+port, "shell", "am", "force-stop", pkg)
+}
+
+// laneBeat 单个车道的心跳文件：外部看门狗（boot_runner.ps1）据此判断"某个车道卡死"。
+// 主循环心跳（heartbeat.txt）只能发现整进程卡死；车道是独立 goroutine，得单独留痕。
+func (r *Runner) laneBeat(a model.Account) {
+	p := filepath.Join(filepath.Dir(r.cfg.StateFile), "hb_rogue_"+a.ID+".txt")
+	_ = os.WriteFile(p, []byte(time.Now().Format("2006-01-02 15:04:05")+"\n"), 0o644)
 }
 
 // logModTime 该账号 MAA 状态日志的最后修改时间（取不到给零值）。
