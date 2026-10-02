@@ -181,6 +181,18 @@ function Get-GamePid($m) {
   return $r
 }
 
+function Set-MachinePort([string]$Name, [string]$Port) {
+  # 把实测端口写回 fleet.local.json（否则体检/上报会用旧端口误报"隧道断/maa 无"）。
+  # 临时文件 + 替换，避免读方读到半个文件。
+  try {
+    $fl2 = Get-Content $FleetLocal -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($mm in $fl2.machines) { if ($mm.name -eq $Name) { $mm.local = [string]$Port } }
+    $tmpFl = $FleetLocal + ".tmp"
+    [IO.File]::WriteAllText($tmpFl, ($fl2 | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -Force $tmpFl $FleetLocal
+  } catch { }
+}
+
 function Get-LivePortMap {
   # 本机模式：一次 info -v all 拿到所有实例的实时 adb 端口（emu index -> port）
   # 用来纠正"配置里的端口早漂了"导致的体检误报（隧道断/maa 无）。
@@ -205,7 +217,10 @@ function Show-Status {
   $live = Get-LivePortMap
   foreach ($m in $Machines) {
     # 端口漂移就以实测为准（只改本次内存副本；worker 的 recover 会把新端口写回机器表）
-    if ($live.ContainsKey([string]$m.Emu) -and $live[[string]$m.Emu] -ne $m.Local) { $m.Local = $live[[string]$m.Emu] }
+    if ($live.ContainsKey([string]$m.Emu) -and $live[[string]$m.Emu] -ne $m.Local) {
+      $m.Local = $live[[string]$m.Emu]
+      Set-MachinePort $m.Name $m.Local   # 漂移了就把实时端口写回机器表
+    }
     $proc  = Get-MaaProc $m
     $age   = Get-LogAgeMin $m
     $tun   = Test-Tunnel $m
@@ -518,15 +533,7 @@ Write-Output ('LAUNCH_PID=' + $r.ProcessId)
     if ($hostPort -ne $m.Local) {
       Log ("[{0}] recover：端口漂移 配置={1} 实测={2}（本次按实测走，并写回机器表）" -f $m.Name, $m.Local, $hostPort)
       $m.Local = [string]$hostPort
-      # 写回 fleet.local.json（否则体检/上报用旧端口，会误报"隧道断/maa无"）。
-      # 临时文件 + 替换，避免读方读到半个文件。
-      try {
-        $fl2 = Get-Content $FleetLocal -Raw -Encoding UTF8 | ConvertFrom-Json
-        foreach ($mm in $fl2.machines) { if ($mm.name -eq $m.Name) { $mm.local = [string]$hostPort } }
-        $tmpFl = $FleetLocal + ".tmp"
-        [IO.File]::WriteAllText($tmpFl, ($fl2 | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
-        Move-Item -Force $tmpFl $FleetLocal
-      } catch { Log ("[{0}] recover：写回机器表失败（不影响本次）" -f $m.Name) }
+      Set-MachinePort $m.Name $hostPort
     }
     & $Adb connect "127.0.0.1:$($m.Local)" 2>$null | Out-Null
     Start-Sleep -Seconds 2
