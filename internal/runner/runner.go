@@ -44,6 +44,7 @@ type Config struct {
 	MaxConcurrent   int      `json:"maxConcurrent"`
 	MinFreeRamMB    int      `json:"minFreeRamMB"`
 	MaxCpuPct       int      `json:"maxCpuPct"`
+	AnnDisabled     bool     `json:"annDisabled"` // true = 这轮先不刷剿灭（不排 ann 任务；state 里旧的也不动）
 }
 
 // State 是 runner/state.json：任务台账。
@@ -210,8 +211,8 @@ func (r *Runner) syncQueue() (added int) {
 				added++
 			}
 		}
-		// 剿灭（按周）
-		if a.AnnTask != "" {
+		// 剿灭（按周）；annDisabled=true 时整块跳过（"先不刷"）
+		if a.AnnTask != "" && !r.cfg.AnnDisabled {
 			ak := "ann:" + a.ID
 			if t := r.state.Tasks[ak]; t == nil || (t.Week != week && !r.working(ak)) || (t.State == "failed" && t.Attempts < maxAttempts && t.Week == week) {
 				if t == nil || t.Week != week {
