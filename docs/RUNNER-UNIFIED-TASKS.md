@@ -151,6 +151,12 @@ l-4 canary 稳住后，其余 4 台一次性切完（同一套动作）：
 
 注意：剿灭有**每周上限**，跑满后 MAA 自己会识别"本周已完成"；runner 每周只排一次（`weekKey`）。
 
+### 10-02 21:53 起：先不刷剿灭（用户决定）
+`runner/runner.json` 加 `"annDisabled": true`（代码提交 `3bfb692`）→ runner 不再排任何 ann 任务；
+同时把 state.json 里当批 44 条 ann 记录清掉、在跑的 ann maa 一并停掉。
+**恢复方式**：把 `annDisabled` 去掉或置 false，重启 runner（`FleetRunner-Watchdog` 会拉起）即可；
+任务文件（`ann_*.toml`，已修好）和账号表的 `annTask` 都原样保留。
+
 
 ## 待办
 
