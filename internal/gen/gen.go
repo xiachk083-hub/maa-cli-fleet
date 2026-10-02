@@ -181,10 +181,11 @@ func Run(autoMasDir, root string, ourIDs []string, dryRun bool) error {
 			dailyToml(a.Client, a.Stage, masks[a.ID])
 		_ = os.WriteFile(filepath.Join(tasksDir, "daily_"+a.ID+".toml"), []byte(body), 0o644)
 		if a.AnnTask != "" {
-			// stage 必须用 MaaCore 认识的任务名，不能用中文显示名：
-			// 实测（2026-10-02，maa-cli 0.7.5）中文名 / LungmenDowntown / Chernobog 都会
-			// “Failed to add task … Unknown task”，只有 \<关卡\>@Annihilation 能过加载。
+			// ① stage 必须用 MaaCore 认识的任务名（中文名 / 裸关卡 id 都会被拒）；
+			// ② 必须有"开始唤醒"：蒿灭跑的时候通常是冷启（模拟器刚起、游戏没开），
+			//    只给 Fight 的话 MAA 找不到任何作战入口，重试 5 次后 Fight Error。
 			ab := fmt.Sprintf("# %s · %s · 剿灭作战 %s\n", a.ID, a.Name, a.Ann) +
+				startUpBlock(a.Client, masks[a.ID]) +
 				fmt.Sprintf("[[tasks]]\nname = \"剿灭作战\"\ntype = \"Fight\"\nparams = { stage = \"%s\", medicine = 0, stone = 0, series = 0 }\n", annStageID(a.Ann))
 			_ = os.WriteFile(filepath.Join(tasksDir, "ann_"+a.ID+".toml"), []byte(ab), 0o644)
 		}
@@ -215,6 +216,14 @@ func annStageID(name string) string {
 		return "Chernobog@Annihilation"
 	}
 	return name
+}
+
+// startUpBlock 生成"开始唤醒"那段（daily / ann 共用；官服带 account_name 换账号掩码）。
+func startUpBlock(client, accountName string) string {
+	if accountName != "" {
+		return fmt.Sprintf("[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true, account_name = \"%s\" }\n\n", client, accountName)
+	}
+	return fmt.Sprintf("[[tasks]]\nname = \"开始唤醒\"\ntype = \"StartUp\"\nparams = { client_type = \"%s\", start_game_enabled = true }\n\n", client)
 }
 
 func dailyToml(client, stage, accountName string) string {
