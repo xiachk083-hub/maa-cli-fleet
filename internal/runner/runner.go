@@ -181,7 +181,8 @@ func (r *Runner) syncQueue() (added int) {
 			switch {
 			case t == nil:
 				dueNow = true
-			case t.State == "failed" && t.Attempts < maxAttempts:
+			case t.State == "failed" && (t.Attempts < maxAttempts || t.Day != day):
+				// 次数没用完 → 继续重试；次数用完但**游戏日换了** → 新的一天重新排（否则一次失败就永远不再跑）
 				dueNow = true
 			case t.State == "done":
 				// 前瞻排班优先：排班给的时间点到了才跑（这样就不会"到点一拥而上"）
