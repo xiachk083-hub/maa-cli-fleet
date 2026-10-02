@@ -120,10 +120,43 @@ l-4 canary 稳住后，其余 4 台一次性切完（同一套动作）：
 - PS worker 归零（`rogue_cli_ops.ps1 *-worker` 无进程），机端 `workers` 为空表。
 
 
+## 剿灭（ann）修复（10-02 21:4x，TESTED）
+
+45 个账号的剿灭一整周全灭，是两个坑叠加：
+
+### 坑 1：stage 写法（任务加载即失败）
+`gen` 从 AUTO-MAS 抄了**中文显示名** `龙门市区`。MaaCore 的 `Fight.stage` 必须是 resource 里的**任务名**（实测 maa-cli 0.7.5，用假设备地址做任务加载试错）：
+
+| stage 写法 | 结果 |
+|---|---|
+| `龙门市区` / `LungmenDowntown` / `Chernobog` | ❌ `Unknown task … Cannot set stage` |
+| `LungmenDowntown@Annihilation` | ✅ 过加载（随后正常连设备） |
+| `Annihilation` | ✅ 过加载（不切关卡，只打当前选中的剿灭） |
+
+映射：龙门市区=`LungmenDowntown@Annihilation`、龙门外环=`LungmenOutskirts@Annihilation`、切尔诺伯格=`Chernobog@Annihilation`。
+关卡切换的 OCR 文本在各客户端资源里已本地化（JP：`チェルノボーグ`/`龍門郊外`/`龍門市街`），所以 **stage 用英文任务名是客户端无关的**。
+
+### 坑 2：缺"开始唤醒"（跑 6~35 秒就挂）
+原来的 `ann_*.toml` 只有一段 `Fight`。剿灭跑的时候模拟器通常是**冷启**（刚起机、游戏没开）→ MAA 在 `StageBegin` 里 5 次重试都找不到任何作战入口 → `Fight Error`。
+
+修复：`gen` 生成 ann = `开始唤醒`（StartUp，含 client_type / 官服账号掩码，与 daily 同一段）+ `Fight(stage=<关卡>@Annihilation)`；
+存量 45 个 `ann_*.toml` 按同规则重建（StartUp 块从各自的 daily toml 抄），`state.json` 里本周 45 条 failed 记录清掉重排。
+
+实测：
+```
+21:47:13 [ann:a40] 完成 ok=true 耗时=4m16s
+21:48:04 [ann:a11] 完成 ok=true 耗时=4m7s
+21:49     done=2 / running=3 / queued=39（队列消化中）
+```
+
+注意：剿灭有**每周上限**，跑满后 MAA 自己会识别"本周已完成"；runner 每周只排一次（`weekKey`）。
+
+
 ## 待办
 
 
-1. 退休遗留：机端 `Ensure-Workers` 代码（workers 已空，暂留无害）、`opsogue_cli_ops.ps1` 里的 `cycle/watch` 那套（留作手动兜底）。
+1. 退休遗留：机端 `Ensure-Workers` 代码（workers 已空，暂留无害）、`ops
+ogue_cli_ops.ps1` 里的 `cycle/watch` 那套（留作手动兜底）。
 2. `fleet gen` 要保留常驻账号：现在 gen 从 AUTO-MAS 重建账号表，会把手工加的 `l4` 冲掉（gen 已保留 emu 覆盖，但没保留 resident 条目）。
 3. `fleet runner -status` 的"在跑 N"永远显示 0（进程启动时把读到的 running 当"重启回收"，只影响显示，不影响调度）——顺手修一下更好。
 4. 队列排序：91 个待跑任务里，同优先级按 map 随机序领（BuildPlan 会把热改以外的优先级统一降到 10）——"越早 enqueue 越先跑"不明显，不值得急，但可整理。
