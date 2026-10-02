@@ -128,19 +128,27 @@ func (r *Runner) startMaa(a model.Account, port, task string) (*maaRun, error) {
 	return &maaRun{cmd: cmd, out: outFile, task: task}, nil
 }
 
-// judgeOutFile：真核对（G7）——必须有任务链 Completed 行、且没有任务链 Error 行；
-// 只“秒退”（资源/内核崩、TOML 错）那种什么都没有的，一律判失败。
+// judgeOutFile：真核对（G7）——必须有任务链 summary 行（形如 "[任务名] 10:00:00 - 10:05:00 (5m) Completed"）、
+// 且没有任务链 Error 行；只“秒退”（资源/内核崩、TOML 错）那种什么都没有的，一律判失败。
+// 注：旧判据在找 "] Completed" 这种连在一起的子串，而 MAA 实际输出是 "[名] 时间 - 时间 (耗时) Completed"，
+// 永远匹配不上 → 所有日常都被判失败（2026-10-02 修）。
+var (
+	reSummaryDone = regexp.MustCompile(`\]\s+\d{1,2}:\d{2}:\d{2}\s+-\s+\d{1,2}:\d{2}:\d{2}\s+\([^)]*\)\s+Completed`)
+	reSummaryErr  = regexp.MustCompile(`\]\s+\d{1,2}:\d{2}:\d{2}\s+-\s+\d{1,2}:\d{2}:\d{2}\s+\([^)]*\)\s+Error`)
+)
+
 func (r *Runner) judgeOutFile(outFile string) (bool, string) {
 	b, _ := os.ReadFile(outFile)
 	completed, errored := 0, 0
 	for _, line := range strings.Split(string(b), "\n") {
-		if strings.Contains(line, "] Error") {
+		switch {
+		case reSummaryErr.MatchString(line):
 			// 主关卡不可用（活动关关闭等）不算整轮失败：后面的“刷剩余理智”会兜住
 			if strings.Contains(line, "[刷理智]") {
 				continue
 			}
 			errored++
-		} else if strings.Contains(line, "] Completed") {
+		case reSummaryDone.MatchString(line):
 			completed++
 		}
 	}
