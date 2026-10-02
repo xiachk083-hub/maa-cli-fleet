@@ -99,10 +99,31 @@
 | 5 | 进程活着但卡死时没人管 | 外层看门狗只看"进程在不在" | runner 每轮 tick 写 `heartbeat.txt`、每个肉鸽车道写 `hb_rogue_<id>.txt`；`boot_runner.ps1` 发现心跳停 >6/15 分钟就杀掉重拉；`boot_node.ps1` 用体检日志新鲜度做同样的事 |
 
 
+### 全量迁移：5/5（10-02 20:45，TESTED）
+
+l-4 canary 稳住后，其余 4 台一次性切完（同一套动作）：
+
+```
+20:45:26 kill node（改 conf 前）→ workers 清空 → boot_node 拉起
+20:45:29-30 退役 4 台 PS worker + 杀它们的 maa（l-1/l-2/l-5/l-7）
+20:45:34 accounts.json 加 4 个常驻账号（共 54 个：49 日常 + 5 肉鸽）
+20:45:35 state.json 种 daily（l-1→10-03 09:22、l-2→01:24、l-7→01:09，取自 PS worker 自己的理智推算；
+          l-5 是 watch 机，按现状不带日常）
+20:45:36 调度器启动：账号 54 个
+20:45:36 [rogue:l1/l2/l4/l5/l7] 常驻肉鸽启动
+20:45:42-59 5 条车道全部发车
+20:49 体检 5 台全 OK，5 条车道日志年龄 0 分，hb_rogue_l1/l2/l4/l5/l7 心跳都在跳
+```
+
+- 附带修复：`syncQueue` 支持 `daily=""`（= 这台机不跑日常，如 l-5 只刷肉鸽）；
+- l-5 首次发车 20 秒后自行退出（游戏重启时序），车道 15 秒后自动重发并稳定 —— 正是肉鸽车道该有的行为；
+- PS worker 归零（`rogue_cli_ops.ps1 *-worker` 无进程），机端 `workers` 为空表。
+
+
 ## 待办
 
 
-1. 5 台全切（l-1/l-2/l-5/l-7）→ 退休 PS `cycle-worker`/`watch-worker`、机端 `Ensure-Workers`、`FleetNode-*` 任务。
+1. 退休遗留：机端 `Ensure-Workers` 代码（workers 已空，暂留无害）、`opsogue_cli_ops.ps1` 里的 `cycle/watch` 那套（留作手动兜底）。
 2. `fleet gen` 要保留常驻账号：现在 gen 从 AUTO-MAS 重建账号表，会把手工加的 `l4` 冲掉（gen 已保留 emu 覆盖，但没保留 resident 条目）。
 3. `fleet runner -status` 的"在跑 N"永远显示 0（进程启动时把读到的 running 当"重启回收"，只影响显示，不影响调度）——顺手修一下更好。
 4. 队列排序：91 个待跑任务里，同优先级按 map 随机序领（BuildPlan 会把热改以外的优先级统一降到 10）——"越早 enqueue 越先跑"不明显，不值得急，但可整理。
