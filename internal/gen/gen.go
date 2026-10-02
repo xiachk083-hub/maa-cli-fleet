@@ -38,13 +38,13 @@ type autoMasScript struct {
 
 type autoMasUser struct {
 	Info struct {
-		Name          string `json:"Name"`
-		Server        string `json:"Server"`
-		Stage         string `json:"Stage"`
-		StageMode     string `json:"StageMode"`
-		Annihilation  string `json:"Annihilation"`
-		MedicineNumb  int    `json:"MedicineNumb"`
-		SeriesNumb    string `json:"SeriesNumb"`
+		Name         string `json:"Name"`
+		Server       string `json:"Server"`
+		Stage        string `json:"Stage"`
+		StageMode    string `json:"StageMode"`
+		Annihilation string `json:"Annihilation"`
+		MedicineNumb int    `json:"MedicineNumb"`
+		SeriesNumb   string `json:"SeriesNumb"`
 	} `json:"Info"`
 	Task struct {
 		IfStartUp bool `json:"IfStartUp"`
