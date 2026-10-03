@@ -1,11 +1,12 @@
 // fleet —— 机队一体化命令行（Go 主语言）
 //
 // 子命令：
-//   fleet center   后端（中心服务：台账/指令/审计/API）
-//   fleet node     机端（心跳/拉令/拉起 worker）        [阶段 1 晚些]
-//   fleet runner   槽位轮转调度器（49 账号日常）        [阶段 1 晚些]
-//   fleet gen      从 AUTO-MAS 配置生成账号表/任务文件   [阶段 1 晚些]
-//   fleet version  版本
+//
+//	fleet center   后端（中心服务：台账/指令/审计/API）
+//	fleet node     机端（心跳/拉令/拉起 worker）        [阶段 1 晚些]
+//	fleet runner   槽位轮转调度器（49 账号日常）        [阶段 1 晚些]
+//	fleet gen      从 AUTO-MAS 配置生成账号表/任务文件   [阶段 1 晚些]
+//	fleet version  版本
 //
 // 设计原则（见 docs/GO-MIGRATION.md）：Go 拿"大脑与骨架"，PowerShell 只做"手脚"
 // （设备/模拟器现场操作），Go 通过 `ops.ps1 -Json` 调它，PS 不持有状态。
@@ -200,6 +201,7 @@ func usage() {
 
 用法：
   fleet center [-addr 0.0.0.0:8790] [-state <目录>] [-token <密钥>]
+               另有 POST /mcp（Streamable HTTP，请求头带同一把 token）
   fleet setup  [-root <项目>] [-data <MAA_DATA_DIR>] [-force] [-channel stable]
   fleet runner [-conf <runner.json>] [-status] [-once] [-enqueue k:id] [-cancel key]
   fleet node   [-conf <conf.json>]
