@@ -3,13 +3,14 @@
 // 与旧 Python 版 API 完全兼容（同样的路径/载荷/状态文件），因此可以直接热替换：
 // 现有 PowerShell 机端不用改一行就能继续上报/拉令。
 //
-//   POST /register  {node:{id,ver,host,machines:[...]}}      机端上线登记
-//   POST /report    {node_id,kind:"heartbeat|state|event",data}
-//   GET  /poll?node_id=   （长轮询 ≤25s）→ {commands:[...]}
-//   POST /result    {node_id,id,ok,rc,output}
-//   POST /command   {node_id|"all",cmd,machine,apply}
-//   GET  /fleet     聚合视图（节点/机台/最近事件）
-//   GET  /health    存活（无鉴权）
+//	POST /register  {node:{id,ver,host,machines:[...]}}      机端上线登记
+//	POST /report    {node_id,kind:"heartbeat|state|event",data}
+//	GET  /poll?node_id=   （长轮询 ≤25s）→ {commands:[...]}
+//	POST /result    {node_id,id,ok,rc,output}
+//	POST /command   {node_id|"all",cmd,machine,apply}
+//	GET  /fleet     聚合视图（节点/机台/最近事件）
+//	GET  /health    存活（无鉴权）
+//	POST /mcp       Streamable HTTP MCP（同一把 token；无状态，只回 JSON）
 package center
 
 import (
@@ -138,6 +139,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/report", s.auth(s.handleReport))
 	mux.HandleFunc("/result", s.auth(s.handleResult))
 	mux.HandleFunc("/command", s.auth(s.handleCommand))
+	mux.HandleFunc("/mcp", s.auth(s.handleMCP))
 	return mux
 }
 
@@ -150,12 +152,24 @@ func (s *Server) ListenAndServe(addr string) error {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Fleet-Token") != s.token {
+		if tokenFrom(r) != s.token {
 			writeJSON(w, 401, map[string]any{"ok": false, "error": "bad_token"})
 			return
 		}
 		next(w, r)
 	}
+}
+
+func tokenFrom(r *http.Request) string {
+	if t := strings.TrimSpace(r.Header.Get("X-Fleet-Token")); t != "" {
+		return t
+	}
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	const p = "bearer "
+	if len(h) > len(p) && strings.EqualFold(h[:len(p)], p) {
+		return strings.TrimSpace(h[len(p):])
+	}
+	return ""
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -307,12 +321,17 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"ok": false, "error": "cmd_required"})
 		return
 	}
-	target := req.NodeID
+	queued, targets := s.enqueue(req.NodeID, req.Cmd, req.Machine, req.Kind, req.Apply)
+	writeJSON(w, 200, map[string]any{"ok": true, "queued": queued, "targets": targets})
+}
+
+// enqueue 把一条指令放进目标机端的队列。nodeID 为空或 "all" 时发给当前已登记的全部节点。
+func (s *Server) enqueue(nodeID, cmdName, machine, kind string, apply bool) (queued []string, targets []string) {
+	target := nodeID
 	if target == "" {
 		target = "all"
 	}
 	s.mu.Lock()
-	var targets []string
 	if target == "all" {
 		for id := range s.nodes {
 			targets = append(targets, id)
@@ -322,11 +341,11 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	queued := make([]string, 0, len(targets))
+	queued = make([]string, 0, len(targets))
 	for _, t := range targets {
 		cmd := &model.Command{
-			ID: model.NewID(), TS: now(), Cmd: req.Cmd, Machine: req.Machine,
-			Apply: req.Apply, Kind: req.Kind,
+			ID: model.NewID(), TS: now(), Cmd: cmdName, Machine: machine,
+			Apply: apply, Kind: kind,
 		}
 		s.mu.Lock()
 		s.pending[cmd.ID] = cmd
@@ -336,7 +355,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		s.event(map[string]any{"kind": "command", "node_id": t, "cmd": cmd})
 		queued = append(queued, cmd.ID)
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "queued": queued, "targets": targets})
+	return queued, targets
 }
 
 // ---- 工具 ------------------------------------------------------------------
