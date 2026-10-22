@@ -36,14 +36,16 @@ const rogueSpinMin = 8  // 同一 cur_task 连续多久算空转。2026-10-05 �
 type rogueLane struct {
 	acc model.Account
 
-	mu       sync.Mutex
-	paused   bool
-	stop     bool
-	run      *maaRun
-	note     string
-	restarts int
-	lastAt   time.Time
-	idle     chan struct{} // non-nil covers DeviceUp, force-stop, launch, Wait and cleanup
+	mu        sync.Mutex
+	paused    bool
+	stop      bool
+	run       *maaRun
+	note      string
+	task      string // 当前任务名（热切换时更新；空 = 用 acc.RogueTask）
+	switching bool   // 当前 maa 是被 setRogue 杀掉的：退出后不判 out、不睡 10 秒
+	restarts  int
+	lastAt    time.Time
+	idle      chan struct{} // non-nil covers DeviceUp, force-stop, launch, Wait and cleanup
 }
 
 func (l *rogueLane) isPaused() bool   { l.mu.Lock(); defer l.mu.Unlock(); return l.paused }
@@ -106,11 +108,11 @@ func (r *Runner) startResidents() {
 		if !a.Enabled || a.RogueTask == "" {
 			continue
 		}
-		l := &rogueLane{acc: a, note: "常驻"}
+		l := &rogueLane{acc: a, task: a.RogueTask, note: "常驻"}
 		r.mu.Lock()
 		r.lanes[a.ID] = l
 		r.mu.Unlock()
-		r.upsertRogueTask(a, "running", "常驻")
+		r.upsertRogueTask(a, a.RogueTask, "running", "常驻")
 		go r.residentLoop(l)
 	}
 }
@@ -131,16 +133,16 @@ func (r *Runner) stopResidents() {
 }
 
 // upsertRogueTask 维护 rogue:<id> 的任务台账（可见性用；不参与排队）。
-func (r *Runner) upsertRogueTask(a model.Account, state, note string) *Task {
+func (r *Runner) upsertRogueTask(a model.Account, task, state, note string) *Task {
 	key := "rogue:" + a.ID
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	t := r.state.Tasks[key]
 	if t == nil {
-		t = &Task{Key: key, AccountID: a.ID, Kind: "rogue", File: a.RogueTask, Enqueued: nowStamp()}
+		t = &Task{Key: key, AccountID: a.ID, Kind: "rogue", File: task, Enqueued: nowStamp()}
 		r.state.Tasks[key] = t
 	}
-	t.File = a.RogueTask
+	t.File = task
 	t.State = state
 	t.Note = note
 	if t.Started == "" {
@@ -152,7 +154,7 @@ func (r *Runner) upsertRogueTask(a model.Account, state, note string) *Task {
 // residentLoop 一台机的肉鸽常驻循环。
 func (r *Runner) residentLoop(l *rogueLane) {
 	a := l.acc
-	log.Printf("[rogue:%s] 常驻肉鸽启动（任务 %s，实例 %s）", a.ID, a.RogueTask, a.Emu)
+	log.Printf("[rogue:%s] 常驻肉鸽启动（任务 %s，实例 %s）", a.ID, l.taskName(), a.Emu)
 	fails := 0
 	for {
 		if l.stopped() {
@@ -164,6 +166,7 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			continue
 		}
 		r.laneBeat(a)
+		task := l.taskName()
 
 		if !l.beginCycle() {
 			continue
@@ -175,7 +178,7 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			if err != nil {
 				fails++
 				l.setNote("设备未就绪：" + err.Error())
-				r.upsertRogueTask(a, "running", "设备未就绪（第 "+strconv.Itoa(fails)+" 次）")
+				r.upsertRogueTask(a, task, "running", "设备未就绪（第 "+strconv.Itoa(fails)+" 次）")
 				log.Printf("[rogue:%s] 设备未就绪：%v（连续 %d 次）", a.ID, err, fails)
 				if fails >= 2 {
 					DeviceHardReset(r.cfg, a.Emu)
@@ -198,7 +201,8 @@ func (r *Runner) residentLoop(l *rogueLane) {
 				return
 			}
 
-			run, err := r.startMaa(a, port, a.RogueTask)
+			task = l.taskName() // 设备准备期间可能被热切换
+			run, err := r.startMaa(a, port, task)
 			if err != nil {
 				l.setNote("发车失败：" + err.Error())
 				log.Printf("[rogue:%s] 发车失败：%v", a.ID, err)
@@ -213,8 +217,14 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			}
 			l.setRun(run)
 			l.setNote("肉鸽跑着")
-			r.upsertRogueTask(a, "running", "肉鸽跑着")
-			log.Printf("[rogue:%s] 已发车 %s（pid=%d，日志 %s）", a.ID, a.RogueTask, run.cmd.Process.Pid, filepath.Base(run.out))
+			r.upsertRogueTask(a, task, "running", "肉鸽跑着")
+			log.Printf("[rogue:%s] 已发车 %s（pid=%d，日志 %s）", a.ID, task, run.cmd.Process.Pid, filepath.Base(run.out))
+
+			// 起机过程中被热切换：刚发的旧任务立刻收回，走下面的“切换任务”分支。
+			if l.taskName() != task {
+				l.markSwitch()
+				killMaa(run)
+			}
 
 			// 看护：进程退出 / 被暂停 / 日志卡死
 			// 注意：Wait() 的返回值只能收一次！自己退出（case 收到）就不能再 `<-done`，
@@ -287,6 +297,14 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			if l.stopped() {
 				return
 			}
+			// 热切换：不判旧任务的 out、不睡 10 秒，立刻用新任务重发。
+			if l.takeSwitch() {
+				task = l.taskName()
+				l.setNote("切换任务：" + task)
+				log.Printf("[rogue:%s] 切换任务 → %s", a.ID, task)
+				r.upsertRogueTask(a, task, "running", "切换任务")
+				return
+			}
 			// 自然退出 → 判 out（成功/失败）；被杀 → 只记原因
 			if reason == "任务退出" {
 				ok, why := r.judgeOutFile(run.out)
@@ -296,11 +314,11 @@ func (r *Runner) residentLoop(l *rogueLane) {
 				l.setNote(reason)
 				log.Printf("[rogue:%s] 肉鸽中断：%s → 重来", a.ID, reason)
 			}
-			r.upsertRogueTask(a, "running", l.noteText())
+			r.upsertRogueTask(a, task, "running", l.noteText())
 			sleepInterruptible(l, 10*time.Second)
 		}()
 	}
-	r.upsertRogueTask(a, "done", "已停止")
+	r.upsertRogueTask(a, l.taskName(), "done", "已停止")
 	log.Printf("[rogue:%s] 常驻肉鸽已停止", a.ID)
 }
 

@@ -670,8 +670,10 @@ func (r *Runner) DispatchNow() {
 	r.Tick()
 }
 
-// FindAccount 找账号。
+// FindAccount 找账号（持锁：SetRogue / disable 会改 r.accounts，任务 goroutine 可能并发读）。
 func (r *Runner) FindAccount(id string) (model.Account, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, a := range r.accounts {
 		if a.ID == id {
 			return a, true

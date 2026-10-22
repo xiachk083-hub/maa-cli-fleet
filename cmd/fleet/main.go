@@ -110,6 +110,14 @@ func main() {
 			}
 			return
 		}
+		if v := flagValue(args, "-set-rogue", ""); v != "" {
+			if err := runner.QueueOp(cfg, "setRogue", v); err != nil {
+				fmt.Fprintln(os.Stderr, "热切换失败：", err)
+				os.Exit(1)
+			}
+			fmt.Println("已落入 queue.in（runner 下一轮 tick 热切换，约 30 秒内）")
+			return
+		}
 		if v := flagValue(args, "-maintenance", ""); v != "" {
 			if err := runner.SetMaintenance(cfg, v); err != nil {
 				fmt.Fprintln(os.Stderr, "维护开关失败：", err)
@@ -203,6 +211,7 @@ func usage() {
   fleet center [-addr 0.0.0.0:8790] [-state <目录>] [-token <密钥>]
   fleet setup  [-root <项目>] [-data <MAA_DATA_DIR>] [-force] [-channel stable]
   fleet runner [-conf <runner.json>] [-status] [-once] [-enqueue k:id] [-cancel key]
+              [-set-rogue <账号>:<任务>]   # 热切换某账号的肉鸽任务（只动该车道）
               [-maintenance on|off|status]   # 维护模式：人在手工登号/排障时用（不派车、不关模拟器）
   fleet gen    [-automas <AUTO-MAS 目录>] [-dry]
   fleet version

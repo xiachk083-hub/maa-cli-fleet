@@ -45,7 +45,7 @@ if (Test-Path $stopFile) { RLog "runner.stop 在（人工停）→ 跳过"; exit
 $running = @(Get-CimInstance Win32_Process -Filter "Name='fleet.exe'" -ErrorAction SilentlyContinue |
   Where-Object {
     $_.CommandLine -and ($_.CommandLine -match '\brunner\b') -and
-    ($_.CommandLine -notmatch '-(status|once|now|enqueue|cancel|reset|enable|disable)\b')
+    ($_.CommandLine -notmatch '-(status|once|now|enqueue|cancel|reset|enable|disable|set-rogue)\b')
   })
 if ($running.Count -gt 0) {
   # ② 心跳：主循环 heartbeat.txt + 各肉鸽车道 hb_rogue_*.txt

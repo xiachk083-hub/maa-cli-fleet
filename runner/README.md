@@ -9,7 +9,7 @@
 | `state.json` | 任务台账（runner 自动维护） |
 | `roster.json` | 班表（可选；不存在 = 理智自循环） |
 | `center.token` | 中心共享 token（接 center 时用） |
-| `queue.in` | CLI 热改队列（runner 每 30 秒合并后删除） |
+| `queue.in` | CLI 热改队列（runner 每 30 秒合并后删除）；`-set-rogue` 也走这里 |
 | `heartbeat.txt` | 主循环心跳（看门狗用） |
 | `hb_rogue_*.txt` | 各肉鸽车道心跳 |
 | `runner.log` / `*.out` | 运行日志与 maa 输出 |

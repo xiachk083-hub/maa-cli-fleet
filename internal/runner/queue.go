@@ -68,11 +68,13 @@ func nowStamp() string { return time.Now().Format("2006-01-02 15:04:05") }
 //	{"op":"reset","task":"daily:a07"}                 失败重置（attempts=0 → 重新排队）
 //	{"op":"now","task":"daily:a07"}                   把排班时间提到现在
 //	{"op":"disable","account":"a07"} / {"op":"enable","account":"a07"}
+//	{"op":"setRogue","account":"l7","rogueTask":"rogue_jiegarden_l7"}  热切换肉鸽任务
 type Op struct {
-	Op      string `json:"op"`
-	Kind    string `json:"kind,omitempty"`
-	Account string `json:"account,omitempty"`
-	Task    string `json:"task,omitempty"`
+	Op        string `json:"op"`
+	Kind      string `json:"kind,omitempty"`
+	Account   string `json:"account,omitempty"`
+	Task      string `json:"task,omitempty"`
+	RogueTask string `json:"rogueTask,omitempty"`
 }
 
 // ApplyOps 读取 queue.in 并合并到运行中的状态（由 Tick 调用）。
@@ -90,6 +92,15 @@ func (r *Runner) ApplyOps() int {
 		}
 		var op Op
 		if json.Unmarshal([]byte(line), &op) != nil {
+			continue
+		}
+		// setRogue 要更新 accounts.json / 车道内存，不能放在持 r.mu 的 applyOp 里。
+		if op.Op == "setRogue" {
+			if err := r.SetRogue(op.Account, op.RogueTask); err != nil {
+				log.Printf("[queue.in] setRogue %s → %s 失败：%v", op.Account, op.RogueTask, err)
+			} else {
+				n++
+			}
 			continue
 		}
 		if r.applyOp(op) {
@@ -188,6 +199,13 @@ func QueueOp(stateFile, op, arg string) error {
 		}
 	case "cancel", "reset":
 		req.Task = arg
+	case "setRogue":
+		parts := strings.SplitN(arg, ":", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return fmt.Errorf("格式：<账号>:<任务名>")
+		}
+		req.Account = strings.TrimSpace(parts[0])
+		req.RogueTask = strings.TrimSpace(parts[1])
 	case "disable", "enable":
 		req.Account = arg
 	default:

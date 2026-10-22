@@ -399,8 +399,8 @@ func (r *Runner) ReportSummary() {
 		}
 	}
 	for _, t := range r.active {
-		if a, ok := r.FindAccount(t.AccountID); ok {
-			focus[a.ID] = a
+		if a := r.findAccountLocked(t.AccountID); a != nil {
+			focus[a.ID] = *a
 		}
 	}
 	r.mu.Unlock()

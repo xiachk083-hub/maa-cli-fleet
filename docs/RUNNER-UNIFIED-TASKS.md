@@ -342,6 +342,29 @@ maa pid=29644 仍在 127.0.0.1:17280；asst.log 年龄 0 秒
 
 机端 `fleet.exe` 已换（备份 `fleet.exe.bak-20261005-spin`），runner pid=1668 于 16:06:17 拉起。下次同类空转大约 8 分钟内会自己重来，不用等人看。
 
+## 肉鸽任务热切换（2026-10-22，setRogue）
+
+以前换主题要改 `runner/accounts.json` + 换任务文件 + 杀 maa/重启 runner。现在机端本地可以一条命令热切换：
+
+```powershell
+fleet.exe runner -conf runner\runner.json -set-rogue l7:rogue_jiegarden_l7
+```
+
+链路：
+
+1. CLI 往 `runner/queue.in` 写 `{"op":"setRogue","account":"l7","rogueTask":"rogue_jiegarden_l7"}`；
+2. runner 下一轮 tick（≤30 秒）校验 `config/tasks/<task>.toml` 存在；
+3. 更新内存里的车道任务 + `runner/accounts.json`（先备份 `accounts.json.bak-<时间>`）；
+4. 只杀掉 **l7 车道**当前的 maa；其他车道不动；
+5. 车道立刻用新任务重发（跳过旧任务的 out 判定和 10 秒等待）。
+
+边界：
+
+- 只对**已存在的常驻肉鸽车道**生效；账号没配 `rogueTask` 会报错，不会偷偷新建车道；
+- 任务名只接受简单文件名（可带 `.toml`），不允许路径；
+- **换主题前仍要先结算/放弃当前主题里进行中的探索**——这是游戏限制，不是 runner 能绕过的；
+- 回滚：`-set-rogue l7:<旧任务>`，或还原 `accounts.json.bak-<时间>` 后重启 runner。
+
 ## 待办
 
 

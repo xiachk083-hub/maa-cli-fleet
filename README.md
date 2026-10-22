@@ -151,6 +151,7 @@ notepad runner\accounts.json
 | `fleet runner -status` | 查看队列 / 班表 / 资源 |
 | `fleet runner -once` | 只跑一轮 |
 | `fleet runner -enqueue daily:a01` | 手工插队一次日常 |
+| `fleet runner -set-rogue l7:rogue_jiegarden_l7` | 热切换某账号的肉鸽任务（只动该车道） |
 | `fleet runner -now daily:a01` | 把已排任务提前到现在 |
 | `fleet runner -cancel daily:a01` | 取消任务 |
 | `fleet runner -reset daily:a01` | 重置失败次数并重排 |

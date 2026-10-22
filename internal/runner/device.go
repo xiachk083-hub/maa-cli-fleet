@@ -171,7 +171,7 @@ func (r *Runner) SweepOrphans() {
 		}
 	}
 	for _, t := range r.active {
-		if a, ok := r.FindAccount(t.AccountID); ok {
+		if a := r.findAccountLocked(t.AccountID); a != nil {
 			keep[a.Emu] = true
 		}
 	}

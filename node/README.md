@@ -57,6 +57,7 @@
 fleet.exe runner -conf runner\runner.json     # 常驻（计划任务负责，不必手起）
 fleet.exe runner -status                      # 看一眼队列（不启动任务）
 fleet.exe runner -enqueue daily:l4            # 手工插一次日常
+fleet.exe runner -set-rogue l7:rogue_jiegarden_l7  # 热切换 l7 的肉鸽任务（只动该车道）
 fleet.exe runner -cancel ann:l4 / -now daily:a07 / -disable daily:a07 / -enable daily:a07
 ```
 
