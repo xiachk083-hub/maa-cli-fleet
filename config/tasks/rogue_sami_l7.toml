@@ -1,6 +1,5 @@
-# rogue_sami_l7.toml — l-7 当前 runner 内存绑定的兼容名，实际主题为界园。
-# 正式配置为 rogue_jiegarden_l7.toml；accounts.json 已切换，runner 重启后使用正式名。
-# 用户 2026-10-21 指示：萨米等级已满，换界园。
+# rogue_sami_l7.toml — theme=Sami · canonical template
+# 来源：rogue_mizuki_l7.toml（原文件已归档到 legacy/）
 
 [[tasks]]
 name = "StartUp"
@@ -11,7 +10,7 @@ params = { client_type = "YoStarJP", start_game_enabled = true }
 name = "Roguelike 无限"
 type = "Roguelike"
 params = {
-  theme = "JieGarden",
+  theme = "Sami",
   mode = 0,
   starts_count = 99999,
   difficulty = 2147483647,

@@ -1,7 +1,6 @@
-# rogue_sarkaz_l2.toml — l-2（主机 idx28/17280，日服）萨卡兹肉鸽 · 一直刷
-#
-# 用户 2026-09-30 指示：l-2 刷萨卡兹。配装沿用标准：维什戴尔/先手必胜/借干员+非好友助战/不投资；
-# 难度按用户定的"水月·傀影=3、其余=MAX" → Sarkaz = MAX。
+# rogue_sami_l7.toml — l-7 当前 runner 内存绑定的兼容名，实际主题为界园。
+# 正式配置为 rogue_jiegarden_l7.toml；accounts.json 已切换，runner 重启后使用正式名。
+# 用户 2026-10-21 指示：萨米等级已满，换界园。
 
 [[tasks]]
 name = "StartUp"
@@ -12,7 +11,7 @@ params = { client_type = "YoStarJP", start_game_enabled = true }
 name = "Roguelike 无限"
 type = "Roguelike"
 params = {
-  theme = "Sarkaz",
+  theme = "JieGarden",
   mode = 0,
   starts_count = 99999,
   difficulty = 2147483647,

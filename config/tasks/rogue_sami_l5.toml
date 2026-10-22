@@ -1,6 +1,5 @@
-# rogue_sami_l5.toml — l-5 当前 runner 内存绑定的兼容名，实际主题为萨卡兹。
-# 正式配置为 rogue_sarkaz_l5.toml；accounts.json 已切换，runner 重启后使用正式名。
-# 保留 MAX / 维什戴尔 / 先手必胜 / 借干员+非好友助战 / 不投资。
+# rogue_sami_l5.toml — theme=Sami · canonical template
+# 来源：rogue_mizuki_l5.toml（原文件已归档到 legacy/）
 
 [[tasks]]
 name = "StartUp"
@@ -10,13 +9,14 @@ params = { client_type = "YoStarJP", start_game_enabled = true }
 [[tasks]]
 name = "Roguelike 无限"
 type = "Roguelike"
-[tasks.params]
-theme = "Sarkaz"
-mode = 0
-starts_count = 99999
-difficulty = 2147483647
-core_char = "维什戴尔"
-roles = "先手必胜"
-use_support = true
-use_nonfriend_support = true
-investment_enabled = false
+params = {
+  theme = "Sami",
+  mode = 0,
+  starts_count = 99999,
+  difficulty = 2147483647,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}

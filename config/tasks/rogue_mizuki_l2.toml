@@ -1,8 +1,5 @@
-# rogue_mizuki_l2.toml — 文件名保留给当前 runner 内存绑定（l2.rogueTask 重启前仍是这个名字）
-#
-# 用户 2026-10-11：l-2 水月刷完，换成傀影。正式任务文件是 rogue_phantom_l2.toml
-# （accounts.json 已指向它；本文件内容与其一致，避免重启前车道重发仍读到水月）。
-# 配装沿用标准：难度3 / 维什戴尔 / 先手必胜 / 借干员+非好友助战 / 不投资。
+# rogue_mizuki_l2.toml — theme=Mizuki · canonical template
+# 来源：rogue_sarkaz_l2.toml（原文件已归档到 legacy/）
 
 [[tasks]]
 name = "StartUp"
@@ -13,7 +10,7 @@ params = { client_type = "YoStarJP", start_game_enabled = true }
 name = "Roguelike 无限"
 type = "Roguelike"
 params = {
-  theme = "Phantom",
+  theme = "Mizuki",
   mode = 0,
   starts_count = 99999,
   difficulty = 3,

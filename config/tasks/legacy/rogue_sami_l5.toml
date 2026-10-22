@@ -1,0 +1,21 @@
+# rogue_sarkaz_l5.toml — l-5（日服）萨卡兹肉鸽 · 一直刷
+# 保留原配装：MAX / 维什戴尔 / 先手必胜 / 借干员+非好友 / 不投资。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike 无限"
+type = "Roguelike"
+[tasks.params]
+theme = "Sarkaz"
+mode = 0
+starts_count = 99999
+difficulty = 2147483647
+core_char = "维什戴尔"
+roles = "先手必胜"
+use_support = true
+use_nonfriend_support = true
+investment_enabled = false
