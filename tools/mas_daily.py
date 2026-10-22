@@ -93,7 +93,8 @@ def log_line(msg: str) -> None:
 
 def main():
     ap = argparse.ArgumentParser(description='MAS 单账号日常 canary')
-    ap.add_argument('--account', required=True, help='fleet 账号 ID 或 MAS 账号名')
+    ap.add_argument('--account', default='', help='fleet 账号 ID 或 MAS 账号名')
+    ap.add_argument('--script-id', default='', help='直接指定单用户脚本 ID（优先于 --account）')
     ap.add_argument('--mas-api', default=DEFAULT_API)
     ap.add_argument('--mas-history', default=DEFAULT_HISTORY)
     ap.add_argument('--fleet-root', default=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -110,18 +111,33 @@ def main():
     accounts, tasks, day = collect_fleet(args.fleet_root)
     hist = collect_history(args.mas_history)
     queues = collect_queues(args.mas_api)
-    fleet_acc, user, err = find_target(args.account, accounts, users)
-    if err or user is None:
-        raise SystemExit('BLOCKED: ' + (err or '找不到 MAS 账号'))
 
-    script = next((s for s in scripts if s['scriptId'] == user['scriptId']), None)
-    if script is None:
-        raise SystemExit('BLOCKED: 账号所在脚本不是 MAA 脚本')
+    if args.script_id:
+        script = next((s for s in scripts if s['scriptId'] == args.script_id), None)
+        if script is None:
+            raise SystemExit('BLOCKED: 找不到脚本 %s' % args.script_id)
+        script_users = [
+            u for u in users
+            if u.get('scriptId') == script['scriptId'] and u.get('status') and u.get('remainedDay') != 0
+        ]
+        if len(script_users) != 1:
+            raise SystemExit('BLOCKED: --script-id 需要单用户脚本，实际 %d 个启用用户' % len(script_users))
+        user = script_users[0]
+        fleet_acc = None
+    else:
+        if not args.account:
+            raise SystemExit('需要 --account 或 --script-id')
+        fleet_acc, user, err = find_target(args.account, accounts, users)
+        if err or user is None:
+            raise SystemExit('BLOCKED: ' + (err or '找不到 MAS 账号'))
+        script = next((s for s in scripts if s['scriptId'] == user['scriptId']), None)
+        if script is None:
+            raise SystemExit('BLOCKED: 账号所在脚本不是 MAA 脚本')
+        script_users = [
+            u for u in users
+            if u.get('scriptId') == script['scriptId'] and u.get('status') and u.get('remainedDay') != 0
+        ]
     auto_queues = [q for q in queues if q.get('timeEnabled') and user['scriptId'] in q.get('scripts', [])]
-    script_users = [
-        u for u in users
-        if u.get('scriptId') == user['scriptId'] and u.get('status') and u.get('remainedDay') != 0
-    ]
 
     h = history_for(hist, user.get('name', ''))
     today_hist = day in h.get('days', [])

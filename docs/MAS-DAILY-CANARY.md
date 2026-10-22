@@ -53,6 +53,9 @@ python tools\mas_daily.py --account a19 `
 
 # 真执行 + 等 history（AutoProxy 按脚本调度）
 python tools\mas_daily.py --account a19 --apply --wait --timeout 1800
+
+# 单用户脚本：直接按 scriptId（不会因同名 v 选错）
+python tools\mas_daily.py --script-id <scriptId> --apply --wait --timeout 1800
 ```
 
 ## 安全闸

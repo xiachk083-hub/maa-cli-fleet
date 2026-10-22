@@ -24,7 +24,26 @@ E:\AUTO-MAS\environment\python\python.exe tools\mas_split.py `
 - 风险提示（旧 history 不迁移、禁用记录、队列名含“并行”等）。
 - full 模式额外输出 old → new 映射模板，Apply 时补 scriptId/userId。
 
-## Apply（尚未实现）
+## Apply（分阶段）
+
+```powershell
+# 1) clone：备份、暂停队列、创建单用户脚本；旧脚本/用户/队列项不动
+python tools\mas_split_apply.py --stage clone --script "官-3" `
+  --plan dist\mas_split_plan.json --apply
+
+# 2) 单账号 canary：用 clone 输出的 mapping 里的新 scriptId
+python tools\mas_daily.py --script-id <newScriptId> --apply --wait --timeout 1800
+
+# 3) finalize：验证新脚本、删旧队列项、加新队列项、清旧启用用户
+python tools\mas_split_apply.py --stage finalize `
+  --mapping dist\mas_split_apply_<scriptId8>.json --apply
+
+# 失败回滚：删除新脚本、恢复队列；旧脚本不动
+python tools\mas_split_apply.py --stage rollback `
+  --mapping dist\mas_split_apply_<scriptId8>.json --apply
+```
+
+finalize 默认仍暂停队列；确认并发/顺序后再加 `--enable-queue`。
 
 建议的落地顺序：
 
