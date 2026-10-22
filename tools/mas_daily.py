@@ -104,9 +104,6 @@ def main():
     ap.add_argument('--timeout', type=int, default=1800)
     ap.add_argument('--ledger', default='', help='执行台账 JSON')
     args = ap.parse_args()
-    if args.apply and not args.unsafe_direct:
-        raise SystemExit('BLOCKED: direct ScriptConfig 已弃用（会绕过 MAS 调度台、不会启动模拟器）；'
-                         '请用 MAS 队列 + AutoProxy。仅诊断可加 --unsafe-direct。')
 
     scripts, users = collect_mas(args.mas_api)
     accounts, tasks, day = collect_fleet(args.fleet_root)
@@ -131,7 +128,7 @@ def main():
         reasons.append('fleet 已启用该账号（会双控）')
     if not user.get('status'):
         reasons.append('MAS 账号 Status=false')
-    if auto_queues and not args.force:
+    if auto_queues and args.unsafe_direct and not args.force:
         reasons.append('脚本在自动队列：' + ', '.join(q.get('name', '') for q in auto_queues))
     if today_hist and not args.force:
         reasons.append('当前游戏日已有 MAS history（防重复刷）')
@@ -146,6 +143,8 @@ def main():
     safe_print('history: today=%s latest=%s days=%d recent=%.1fmin' % (
         'yes' if today_hist else 'no', h.get('latest') or '-', len(h.get('days', [])), recent_min))
     safe_print('autoQueue: %s' % (', '.join(q.get('name', '') for q in auto_queues) or 'no'))
+    if auto_queues and not args.unsafe_direct:
+        safe_print('WARN: 脚本也在自动队列；MAS 脚本锁会串行化，不会双开')
     if reasons:
         for r in reasons:
             safe_print('BLOCKED: ' + r)
@@ -154,14 +153,18 @@ def main():
         return 2
 
     if not args.apply:
-        safe_print('PLAN: POST /api/dispatch/start {"mode":"ScriptConfig","taskId":"<userId>"}')
+        mode = 'ScriptConfig' if args.unsafe_direct else 'AutoProxy'
+        target = user['userId'] if args.unsafe_direct else script['scriptId']
+        safe_print('PLAN: POST /api/dispatch/start {"mode":"%s","taskId":"%s"}' % (mode, target))
         safe_print('dry-run：未执行。加 --apply 才真发。')
         return 0
 
+    mode = 'ScriptConfig' if args.unsafe_direct else 'AutoProxy'
+    target = user['userId'] if args.unsafe_direct else script['scriptId']
     start = time.time()
-    resp = post_json(args.mas_api, '/api/dispatch/start', {'mode': 'ScriptConfig', 'taskId': user['userId']})
+    resp = post_json(args.mas_api, '/api/dispatch/start', {'mode': mode, 'taskId': target})
     task_id = str(resp.get('taskId') or '')
-    log_line('DISPATCH code=%s status=%s taskId=%s' % (resp.get('code'), resp.get('status'), task_id))
+    log_line('DISPATCH mode=%s target=%s code=%s status=%s taskId=%s' % (mode, target, resp.get('code'), resp.get('status'), task_id))
     if resp.get('code') not in (200, None) or not task_id:
         safe_print('执行失败：%s' % json.dumps(resp, ensure_ascii=False))
         return 1
@@ -180,6 +183,8 @@ def main():
         'masName': user.get('name', ''),
         'scriptId': script['scriptId'],
         'userId': user['userId'],
+        'mode': mode,
+        'target': target,
         'taskId': task_id,
         'gameDay': day,
         'startedAt': dt.datetime.now().isoformat(timespec='seconds'),
