@@ -253,6 +253,13 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
 
     rows = []
     used_users = set()
+    active_users = [u for u in users if u.get('status') and u.get('remainedDay') != 0]
+    active_per_script = {}
+    for u in active_users:
+        sid = u.get('scriptId', '')
+        active_per_script[sid] = active_per_script.get(sid, 0) + 1
+    unique_ids = {u.get('accountId') for u in users if u.get('accountId')}
+    active_unique_ids = {u.get('accountId') for u in active_users if u.get('accountId')}
 
     for a in accounts:
         emu = str(a.get('emu', ''))
@@ -444,7 +451,14 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
         'fleetAccounts': len(accounts),
         'fleetEnabled': sum(1 for a in accounts if a.get('enabled')),
         'fleetDisabled': sum(1 for a in accounts if not a.get('enabled')),
+        'masScripts': len(scripts),
         'masUsers': len(users),
+        'masUserRecords': len(users),
+        'masUniqueIds': len(unique_ids),
+        'masActiveRecords': len(active_users),
+        'masActiveUniqueIds': len(active_unique_ids),
+        'masSharedScripts': sum(1 for c in active_per_script.values() if c > 1),
+        'masMaxUsersPerScript': max(active_per_script.values()) if active_per_script else 0,
         'masMatched': len(used_users),
         'masUnmatched': len(users) - len(used_users),
         'masAutoQueued': sum(1 for u in users if any(q.get('timeEnabled') for q in queue_by_script.get(u.get('scriptId', ''), []))),
@@ -495,7 +509,11 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
     cards = [
         ('FLEET 账号', s['fleetAccounts']),
         ('FLEET 启用', s['fleetEnabled']),
-        ('MAS 用户', s['masUsers']),
+        ('MAS 脚本', s['masScripts']),
+        ('MAS 用户记录', s['masUserRecords']),
+        ('唯一账号 ID', s['masUniqueIds']),
+        ('启用唯一 ID', s['masActiveUniqueIds']),
+        ('共享脚本', s['masSharedScripts']),
         ('匹配到 fleet', s['masMatched']),
         ('未匹配 MAS', s['masUnmatched']),
         ('BOTH', s['both']),
@@ -797,8 +815,10 @@ def main():
 
     safe_print('MAS/FLEET inventory: %s' % args.out)
     safe_print('JSON: %s' % args.json)
-    safe_print('summary: fleet=%d enabled=%d mas=%d matched=%d unmatched=%d autoQueued=%d notAutoQueued=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d noDaily=%d unknown=%d rogue=%d paused=%d stale=%d' % (
-        summary['fleetAccounts'], summary['fleetEnabled'], summary['masUsers'], summary['masMatched'],
+    safe_print('summary: fleet=%d enabled=%d masScripts=%d masRecords=%d uniqueIds=%d activeRecords=%d activeUniqueIds=%d sharedScripts=%d matched=%d unmatched=%d autoQueued=%d notAutoQueued=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d noDaily=%d unknown=%d rogue=%d paused=%d stale=%d' % (
+        summary['fleetAccounts'], summary['fleetEnabled'], summary['masScripts'], summary['masUserRecords'],
+        summary['masUniqueIds'], summary['masActiveRecords'], summary['masActiveUniqueIds'],
+        summary['masSharedScripts'], summary['masMatched'],
         summary['masUnmatched'], summary['masAutoQueued'], summary['masNotAutoQueued'], summary['both'],
         summary['masOnly'], summary['fleetOnly'], summary['conflicts'],
         summary['todayCleared'], summary['todayNotCleared'], summary['todayNoDaily'], summary['todayUnknown'],

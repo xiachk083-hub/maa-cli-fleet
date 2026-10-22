@@ -7,6 +7,7 @@
 ## 用途
 
 - **inventory**：同时看 MAS 脚本/账号和 fleet 账号，回答“谁在谁手里、今天清了没有”；
+  MAS 的“用户”是**脚本内的用户记录**，不等于唯一账号；看板分别显示脚本数、用户记录、唯一账号 ID、启用唯一 ID、共享脚本数。
 - **plan**：给一份 desired JSON，输出 `CREATE_USER / CREATE_SCRIPT / UPDATE_USER / UPDATE_SCRIPT / UPDATE_QUEUE / NOOP / BLOCKED`，只做计划，不落地。
   会检查：账号是否存在、`Emulator.Index`、`Info.Path`（MAA 槽位）、`Run` 参数、`Server/Stage/Annihilation/Task`、脚本在哪个队列、队列 `TimeEnabled`。
 
