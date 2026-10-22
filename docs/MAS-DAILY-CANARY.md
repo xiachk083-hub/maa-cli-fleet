@@ -19,6 +19,21 @@ POST /api/dispatch/start {"mode":"AutoProxy","taskId":"<scriptId>"}
 **不需要临时队列**：MAS 调度器支持按脚本单独调度。`ScriptConfig` 直跑才会绕过调度台，
 导致模拟器不启动；已默认禁用，仅 `--unsafe-direct` 保留作诊断。
 
+### AutoProxy 是“脚本级”，不是“账号级”
+
+2026-10-23 实测：`AutoProxy + taskId=<scriptId>` 会跑该脚本内**所有启用账号**
+（`Status=true` 且 `RemainedDay != 0`），按用户列表顺序逐个跑，不是只跑 Plan 匹配到的那个账号。
+
+a19 的脚本有多个启用账号；第一次 canary 实际先跑了另一个账号，`v` 排在后面，
+30 分钟 timeout 时还没轮到 `v`，所以 `history/2026-10-23/v/` 为空——不是 MAS 没跑，而是跑的是整脚本。
+
+因此：
+
+- `mas_daily.py` 默认在“脚本内启用账号 >1”时 `BLOCKED`，避免误跑整脚本；
+- `--script` 才明确允许整脚本执行（耗时 = 账号数 × 单账号时间）；
+- 单账号执行需要**专用脚本**（推荐），或 `--unsafe-direct` + 先启动模拟器（仅诊断）；
+- 不要用“暂停其他账号”做 canary，容易忘记恢复。
+
 ## 为什么不是直接批量
 
 - MAS 的 `并行1..7` 队列 `TimeEnabled=true`，会自动跑；

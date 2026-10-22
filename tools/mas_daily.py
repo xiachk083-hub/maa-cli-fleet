@@ -98,7 +98,8 @@ def main():
     ap.add_argument('--mas-history', default=DEFAULT_HISTORY)
     ap.add_argument('--fleet-root', default=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     ap.add_argument('--apply', action='store_true', help='真执行 dispatch/start（默认 dry-run）')
-    ap.add_argument('--unsafe-direct', action='store_true', help='已弃用：直接 ScriptConfig，不经过 MAS 调度台/队列')
+    ap.add_argument('--script', action='store_true', help='允许 AutoProxy 跑整个脚本（脚本内所有启用账号）')
+    ap.add_argument('--unsafe-direct', action='store_true', help='诊断：ScriptConfig 只跑指定用户；不会启动模拟器')
     ap.add_argument('--force', action='store_true', help='允许当天已有 history 再跑（不建议）')
     ap.add_argument('--wait', action='store_true', help='等待 history 结果')
     ap.add_argument('--timeout', type=int, default=1800)
@@ -117,6 +118,10 @@ def main():
     if script is None:
         raise SystemExit('BLOCKED: 账号所在脚本不是 MAA 脚本')
     auto_queues = [q for q in queues if q.get('timeEnabled') and user['scriptId'] in q.get('scripts', [])]
+    script_users = [
+        u for u in users
+        if u.get('scriptId') == user['scriptId'] and u.get('status') and u.get('remainedDay') != 0
+    ]
 
     h = history_for(hist, user.get('name', ''))
     today_hist = day in h.get('days', [])
@@ -128,6 +133,11 @@ def main():
         reasons.append('fleet 已启用该账号（会双控）')
     if not user.get('status'):
         reasons.append('MAS 账号 Status=false')
+    if not args.unsafe_direct and len(script_users) > 1 and not args.script:
+        reasons.append(
+            'AutoProxy 按脚本调度会跑脚本内 %d 个启用账号；单账号 canary 需专用脚本，'
+            '或加 --script 明确整脚本执行' % len(script_users)
+        )
     if auto_queues and args.unsafe_direct and not args.force:
         reasons.append('脚本在自动队列：' + ', '.join(q.get('name', '') for q in auto_queues))
     if today_hist and not args.force:
@@ -142,9 +152,14 @@ def main():
         user.get('server'), user.get('stage')))
     safe_print('history: today=%s latest=%s days=%d recent=%.1fmin' % (
         'yes' if today_hist else 'no', h.get('latest') or '-', len(h.get('days', [])), recent_min))
+    safe_print('scriptUsers: %d  enabled' % len(script_users))
     safe_print('autoQueue: %s' % (', '.join(q.get('name', '') for q in auto_queues) or 'no'))
     if auto_queues and not args.unsafe_direct:
         safe_print('WARN: 脚本也在自动队列；MAS 脚本锁会串行化，不会双开')
+    if args.script and len(script_users) > 1:
+        safe_print('WARN: --script 会按脚本跑全部 %d 个启用账号；--wait 只等目标账号' % len(script_users))
+    if args.unsafe_direct:
+        safe_print('WARN: --unsafe-direct 只跑指定用户，但不会启动模拟器；先确保 idx 已启动')
     if reasons:
         for r in reasons:
             safe_print('BLOCKED: ' + r)
