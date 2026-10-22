@@ -59,7 +59,8 @@ python tools\mas_daily.py --account a19 --apply --wait --timeout 1800
 3. 检查安全闸；
 4. `POST /api/dispatch/start {"mode":"AutoProxy","taskId":"<scriptId>"}`；
 5. 返回 `taskId`，写 `dist/mas_daily_ledger.json`；
-6. `--wait` 轮询 `history/<游戏日>/<账号>/*.json`，解析 `maa_result` / `sanity`。
+6. `--wait` 轮询 `history/<游戏日>/<账号>/*.json`，解析 `maa_result` / `sanity`；
+7. 超时（默认 1800s）会尝试 `POST /api/dispatch/stop`，台账记 `timeout`，不把任务留在后台。
 
 ## 第一次 canary
 

@@ -212,11 +212,20 @@ def main():
             break
         time.sleep(10)
     if not data:
+        # 超时不再把 MAS 任务留在后台：先停掉，再记 timeout。
+        try:
+            post_json(args.mas_api, '/api/dispatch/stop', {'taskId': task_id})
+            run['note'] = 'no history before timeout; dispatch stopped'
+            log_line('TIMEOUT → dispatch/stop taskId=%s' % task_id)
+        except Exception as e:
+            run['note'] = 'no history before timeout; stop failed: %s' % e
+            log_line('TIMEOUT → stop failed taskId=%s：%s' % (task_id, e))
         run['status'] = 'timeout'
+        run['endedAt'] = dt.datetime.now().isoformat(timespec='seconds')
         with io.open(ledger_path, 'w', encoding='utf-8') as f:
             json.dump(ledger, f, ensure_ascii=False, indent=2)
             f.write('\n')
-        safe_print('TIMEOUT：没有等到新的 history JSON')
+        safe_print('TIMEOUT：没有等到新的 history JSON（已尝试停止 MAS 任务）')
         return 3
 
     result = str(data.get('maa_result') or '')
@@ -226,7 +235,8 @@ def main():
         status = 'failed'
     else:
         status = 'unknown'
-    run.update({'status': status, 'historyFile': data.get('_file', ''), 'maaResult': result, 'sanity': data.get('sanity')})
+    run.update({'status': status, 'historyFile': data.get('_file', ''), 'maaResult': result,
+                'sanity': data.get('sanity'), 'endedAt': dt.datetime.now().isoformat(timespec='seconds')})
     with io.open(ledger_path, 'w', encoding='utf-8') as f:
         json.dump(ledger, f, ensure_ascii=False, indent=2)
         f.write('\n')
