@@ -1,0 +1,35 @@
+{
+  "_说明": "a19 canary 的期望配置示例（只读 Plan）。不含真实手机号/密码；accountId 留空时按 name 匹配现有账号，缺账号会 BLOCKED。",
+  "accounts": [
+    {
+      "key": "a19",
+      "name": "v",
+      "accountId": "",
+      "server": "Official",
+      "stage": "YW-8",
+      "emulatorIndex": 4,
+      "maaPath": "E:/MAA-Multi/MAA_3",
+      "queue": "并行3-MAA_3",
+      "queueTimeEnabled": true,
+      "annihilation": "LungmenOutskirts@Annihilation",
+      "status": true,
+      "run": {
+        "TaskTransitionMethod": "ExitEmulator",
+        "ProxyTimesLimit": 0,
+        "RunTimesLimit": 3,
+        "AnnihilationTimeLimit": 40,
+        "RoutineTimeLimit": 10
+      },
+      "tasks": {
+        "StartUp": true,
+        "Recruit": true,
+        "Infrast": true,
+        "Fight": true,
+        "Mall": true,
+        "Award": true,
+        "Roguelike": false,
+        "Reclamation": false
+      }
+    }
+  ]
+}

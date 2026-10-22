@@ -4,7 +4,7 @@
 |---|---|---|
 | `gen_roster.py` | 从 `runner/state.json` + `accounts.json` 生成 `runner/roster.json` | Go 班表的配套工具 |
 | `mas_inventory.py` | MAS / fleet 只读盘点 + 接管 Plan（不写 MAS、不 dispatch） | 见 `docs/MAS-INVENTORY.md` |
-| `mas_daily.py` | MAS 单账号日常 canary（默认 dry-run；只对已存在账号 dispatch） | 见 `docs/MAS-DAILY-CANARY.md` |
+| `mas_daily.py` | MAS 单账号 Plan/诊断（direct dispatch 已弃用；执行应走队列 AutoProxy） | 见 `docs/MAS-DAILY-CANARY.md` |
 | `fleet_mcp.py` | MCP 网关（stdio），把旧 PS 栈的 11 个操作暴露给 Agent | **Legacy**：驱动 `ops/rogue_cli_ops.ps1`，不是 Go runner |
 | `gen_accounts.ps1` | 从 AUTO-MAS 配置生成账号表 / 任务 TOML | **Legacy**：已被 `fleet gen` 取代 |
 | `shot_annotate.py` | 给大厅截图叠信息面板（Pillow） | 对外分享请加 `--mask-phone` |

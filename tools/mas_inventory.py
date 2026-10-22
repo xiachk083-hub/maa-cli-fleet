@@ -81,6 +81,12 @@ def norm(s: str) -> str:
     return re.sub(r'\s+', '', str(s or '')).strip().lower()
 
 
+def norm_path(s: str) -> str:
+    """Windows 路径归一化：/ -> \\、去尾斜杠、忽略大小写。"""
+    p = str(s or '').strip().replace('/', '\\').rstrip('\\')
+    return p.lower()
+
+
 def game_day(now: dt.datetime | None = None) -> str:
     now = now or dt.datetime.now()
     return (now - dt.timedelta(hours=4)).strftime('%Y-%m-%d')
@@ -488,11 +494,17 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
     return ''.join(out)
 
 
-def plan_desired(desired_path: str, scripts, users):
+def plan_desired(desired_path: str, scripts, users, queues=None):
     data = load_json(desired_path)
     specs = data.get('accounts') if isinstance(data, dict) else data
     if not isinstance(specs, list):
         raise SystemExit('desired 文件格式：{"accounts":[...]}')
+    queues = queues or []
+    queue_by_script = {}
+    for q in queues:
+        for sid in q.get('scripts', []):
+            queue_by_script.setdefault(sid, []).append(q)
+
     plan = []
     for spec in specs:
         key = str(spec.get('key') or spec.get('id') or '')
@@ -503,12 +515,19 @@ def plan_desired(desired_path: str, scripts, users):
         emu = str(spec.get('emulatorIndex') or spec.get('emu') or '')
         maa = str(spec.get('maaPath') or '')
         want_tasks = spec.get('tasks') or {}
+        want_queue = str(spec.get('queue') or spec.get('queueName') or '')
+        want_queue_time = spec.get('queueTimeEnabled')
+        want_ann = str(spec.get('annihilation') or '')
+        want_status = spec.get('status')
+        want_run = spec.get('run') or {}
         changes = []
         action = 'NOOP'
         reason = ''
         script = None
         existing_user = None
         matches = []
+        queue_current = ''
+        queue_action = 'OK' if want_queue else ''
 
         # 1) 账号是否已存在：优先 accountId，其次 name（跨所有脚本）
         if account_id and '*' not in account_id and '<' not in account_id:
@@ -523,17 +542,17 @@ def plan_desired(desired_path: str, scripts, users):
             if script is None:
                 action, reason = 'BLOCKED', '账号所在脚本不是 MAA 脚本'
             elif emu and str(script.get('emulatorIndex')) != emu:
-                action, reason = 'BLOCKED', '账号已存在于另一个脚本（模拟器 %s）' % script.get('emulatorIndex')
-            elif maa and norm(script.get('maaPath')) != norm(maa):
+                action, reason = 'BLOCKED', '账号已在另一个脚本（模拟器 %s），迁移需人工确认' % script.get('emulatorIndex')
+            elif maa and norm_path(script.get('maaPath')) != norm_path(maa):
                 changes.append('script.maaPath')
 
         # 2) 账号不存在：按模拟器/MAA 找脚本，找不到则计划新建
         if action != 'BLOCKED' and existing_user is None:
             cands = [s for s in scripts if emu and str(s.get('emulatorIndex')) == emu]
             if not cands and maa:
-                cands = [s for s in scripts if norm(s.get('maaPath')) == norm(maa)]
+                cands = [s for s in scripts if norm_path(s.get('maaPath')) == norm_path(maa)]
             if len(cands) > 1 and maa:
-                cands = [s for s in cands if norm(s.get('maaPath')) == norm(maa)]
+                cands = [s for s in cands if norm_path(s.get('maaPath')) == norm_path(maa)]
             if len(cands) > 1:
                 action, reason = 'BLOCKED', '模拟器/MAA 对应多个脚本'
             elif len(cands) == 0:
@@ -544,7 +563,32 @@ def plan_desired(desired_path: str, scripts, users):
             else:
                 script = cands[0]
 
-        # 3) 已有账号：字段级 diff；新账号：只做 CREATE 计划
+        # 3) 脚本级 diff（MAA 路径 / Run 参数 / 队列）
+        if action != 'BLOCKED' and script is not None:
+            for k, v in want_run.items():
+                if k in (script.get('run') or {}) and (script.get('run') or {}).get(k) != v:
+                    changes.append('script.run.' + k)
+            qs = queue_by_script.get(script['scriptId'], [])
+            queue_current = ', '.join(q.get('name', '') for q in qs)
+            if want_queue:
+                names = [q.get('name', '') for q in qs]
+                if not qs:
+                    queue_action = 'ADD'
+                    changes.append('queue.add:' + want_queue)
+                elif want_queue in names:
+                    queue_action = 'OK'
+                else:
+                    queue_action = 'MOVE'
+                    changes.append('queue.move:%s->%s' % (queue_current, want_queue))
+                q = next((x for x in qs if x.get('name') == want_queue), None)
+                if q and want_queue_time is not None and bool(q.get('timeEnabled')) != bool(want_queue_time):
+                    queue_action = 'UPDATE_TIME'
+                    changes.append('queue.timeEnabled')
+        elif action == 'CREATE_SCRIPT' and want_queue:
+            queue_action = 'ADD'
+            changes.append('queue.add:' + want_queue)
+
+        # 4) 账号级 diff；新账号只做 CREATE 计划
         if action != 'BLOCKED':
             if existing_user:
                 u = existing_user
@@ -552,6 +596,10 @@ def plan_desired(desired_path: str, scripts, users):
                     changes.append('user.server')
                 if stage and stage != u.get('stage'):
                     changes.append('user.stage')
+                if want_ann and want_ann != u.get('annihilation'):
+                    changes.append('user.annihilation')
+                if want_status is not None and bool(want_status) != bool(u.get('status')):
+                    changes.append('user.status')
                 for k, label in TASK_FLAGS:
                     if k in want_tasks:
                         want = want_tasks[k]
@@ -561,19 +609,27 @@ def plan_desired(desired_path: str, scripts, users):
                         continue
                     if bool(want) != bool(u.get('tasks', {}).get(label)):
                         changes.append('user.' + label)
-                if changes:
-                    has_script = any(x.startswith('script.') for x in changes)
-                    has_user = any(x.startswith('user.') for x in changes)
-                    action = 'UPDATE_SCRIPT+USER' if has_script and has_user else 'UPDATE_SCRIPT' if has_script else 'UPDATE_USER'
-                else:
-                    action = 'NOOP'
+                has_script = any(x.startswith('script.') for x in changes)
+                has_user = any(x.startswith('user.') for x in changes)
+                has_queue = any(x.startswith('queue.') for x in changes)
+                parts = []
+                if has_script:
+                    parts.append('UPDATE_SCRIPT')
+                if has_user:
+                    parts.append('UPDATE_USER')
+                if has_queue:
+                    parts.append('UPDATE_QUEUE')
+                action = '+'.join(parts) if parts else 'NOOP'
             else:
                 if not account_id or '*' in account_id or '<' in account_id:
                     action, reason = 'BLOCKED', '创建账号需要可用的 accountId/凭据'
-                elif action == 'CREATE_SCRIPT':
-                    action = 'CREATE_SCRIPT+USER'
                 else:
-                    action = 'CREATE_USER'
+                    if action == 'CREATE_SCRIPT':
+                        action = 'CREATE_SCRIPT+USER'
+                    else:
+                        action = 'CREATE_USER'
+                    if queue_action == 'ADD':
+                        action += '+QUEUE'
 
         plan.append({
             'key': key,
@@ -581,6 +637,8 @@ def plan_desired(desired_path: str, scripts, users):
             'action': action,
             'scriptId': (script or {}).get('scriptId', ''),
             'userId': (existing_user or {}).get('userId', ''),
+            'queue': queue_current,
+            'queueAction': queue_action,
             'changes': changes,
             'reason': reason,
         })
@@ -605,7 +663,7 @@ def main():
     queues = collect_queues(args.mas_api)
 
     if args.desired:
-        plan = plan_desired(args.desired, scripts, users)
+        plan = plan_desired(args.desired, scripts, users, queues)
         out = {'generatedAt': dt.datetime.now().isoformat(timespec='seconds'), 'gameDay': day, 'masHistory': os.path.abspath(args.mas_history), 'plan': plan}
         os.makedirs(os.path.dirname(args.plan_out) or '.', exist_ok=True)
         with io.open(args.plan_out, 'w', encoding='utf-8') as f:
@@ -613,7 +671,9 @@ def main():
             f.write('\n')
         safe_print('PLAN（只读，不会写 MAS）')
         for p in plan:
-            safe_print('  %-8s %-16s %s %s' % (p['key'], p['action'], p['scriptId'], ','.join(p['changes']) or p['reason']))
+            safe_print('  %-8s %-20s %s queue=%s/%s %s' % (
+                p['key'], p['action'], p['scriptId'][:8], p['queue'] or '-', p['queueAction'] or '-',
+                ','.join(p['changes']) or p['reason']))
         safe_print('plan json: %s' % args.plan_out)
         return
 

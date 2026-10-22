@@ -1,7 +1,25 @@
 # MAS 日常 canary（单账号脚本执行）
 
-> 2026-10-23。`tools/mas_daily.py`：只对**已存在的 MAS 账号**做 direct dispatch，
-> 默认 dry-run；`--apply` 才真执行。不创建/修改账号或脚本。
+> ⚠️ **2026-10-23 修订：direct `ScriptConfig` 已弃用。**
+> 实测它会绕过 MAS 调度台：只启动 MAA 进程，不启动模拟器，也不做队列的设备准备。
+> 正确路径是 **MAS 队列 + `AutoProxy`**；`mas_daily.py` 现在只保留 Plan/诊断，
+> `--apply` 需要显式 `--unsafe-direct` 才会执行。
+
+> 2026-10-23。`tools/mas_daily.py`：只对**已存在的 MAS 账号**做检查；
+> 默认 dry-run；不再默认直接 dispatch。
+
+## 正确执行路径（待实现）
+
+```text
+临时队列 canary-<account>-<ts>（TimeEnabled=false，单 item = 目标 script）
+  → dispatch/start {mode:"AutoProxy", taskId:<queueId>}
+  → MAS 调度台启动模拟器 / 切号 / 跑日常
+  → 等 history
+  → 删除临时队列（或恢复原队列）
+```
+
+这样设备生命周期和账号切换都由 MAS 负责，我们只保证“账号/脚本绑定/队列项”正确。
+`mas_daily.py` 的 direct `ScriptConfig` 仅保留作诊断，不再作为执行路径。
 
 ## 为什么不是直接批量
 

@@ -98,11 +98,15 @@ def main():
     ap.add_argument('--mas-history', default=DEFAULT_HISTORY)
     ap.add_argument('--fleet-root', default=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     ap.add_argument('--apply', action='store_true', help='真执行 dispatch/start（默认 dry-run）')
+    ap.add_argument('--unsafe-direct', action='store_true', help='已弃用：直接 ScriptConfig，不经过 MAS 调度台/队列')
     ap.add_argument('--force', action='store_true', help='允许当天已有 history 再跑（不建议）')
     ap.add_argument('--wait', action='store_true', help='等待 history 结果')
     ap.add_argument('--timeout', type=int, default=1800)
     ap.add_argument('--ledger', default='', help='执行台账 JSON')
     args = ap.parse_args()
+    if args.apply and not args.unsafe_direct:
+        raise SystemExit('BLOCKED: direct ScriptConfig 已弃用（会绕过 MAS 调度台、不会启动模拟器）；'
+                         '请用 MAS 队列 + AutoProxy。仅诊断可加 --unsafe-direct。')
 
     scripts, users = collect_mas(args.mas_api)
     accounts, tasks, day = collect_fleet(args.fleet_root)
