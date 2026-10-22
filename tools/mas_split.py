@@ -24,6 +24,19 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mas_inventory import collect_mas, collect_queues, norm, safe_print  # noqa: E402
 
+SERVER_LABELS = {
+    'Official': '官服',
+    'Bilibili': 'B服',
+    'YoStarEN': '国际服',
+    'YoStarJP': '日服',
+    'YoStarKR': '韩服',
+    'txwy': '繁中服',
+}
+
+
+def server_label(server: str) -> str:
+    return SERVER_LABELS.get(str(server or ''), str(server or '').strip() or '未知服')
+
 
 def slug(text: str) -> str:
     s = re.sub(r'[^\w\u4e00-\u9fff.-]+', '_', str(text or '')).strip('._-')
@@ -92,14 +105,19 @@ def queue_names_for(sid: str, queues) -> list:
 
 
 def new_script_name(base: str, user: dict, used: set, planned: set) -> str:
-    stem = slug(base or 'script')
-    label = slug(user.get('name') or user.get('userId', '')[:8])
-    name = '%s-%s' % (stem, label)
+    """默认用用户名做脚本名：人好搜；重名才加短 userId。
+    脚本名是 history 锚点，创建后不要改。
+    """
+    label = slug(user.get('name') or '')
+    if not label:
+        label = 'user-' + user.get('userId', '')[:8]
+    srv = server_label(user.get('server', ''))
+    name = '%s-%s' % (label, srv)
     if name in used or name in planned:
-        name = '%s-%s-%s' % (stem, label, user.get('userId', '')[:6])
+        name = '%s-%s-%s' % (label, srv, user.get('userId', '')[:6])
     i = 2
     while name in used or name in planned:
-        name = '%s-%s-%s-%d' % (stem, label, user.get('userId', '')[:4], i)
+        name = '%s-%s-%s-%d' % (label, srv, user.get('userId', '')[:4], i)
         i += 1
     planned.add(name)
     return name
@@ -153,6 +171,7 @@ def main():
             clones.append({
                 'oldUserId': u['userId'],
                 'userName': u.get('name', ''),
+                'server': u.get('server', ''),
                 'newScriptName': name,
                 'newScriptId': '(apply 时生成)',
                 'newUserId': '(clone 时由 MAS 生成)',
