@@ -6,26 +6,23 @@
 
 ```powershell
 E:\AUTO-MAS\environment\python\python.exe tools\mas_split.py `
+  --mode full `
   --mas-api http://127.0.0.1:36163 `
   --out dist\mas_split_plan.json `
-  --keep-out dist\mas_split_keep.template.json
+  --keep-out dist\mas_split_mapping.template.json
 ```
+
+`--mode full`（默认）：**所有启用用户全部拆出**，旧脚本清空并归档；
+`--mode keep`：保留一个用户在原脚本，其余拆出（可选 `--keep` 指定主号）。
 
 输出：
 
-- 每个多用户脚本的 `keep`（留在原脚本的用户）和 `clones`（计划拆出的单用户脚本）；
+- 每个多用户脚本的 `clones`（计划拆出的单用户脚本）；
 - 新脚本名（默认 = `用户名-服务器`，如 `v-官服`；重名才加短 userId）、目标队列、模拟器/MAA；
 - 脚本名只是容器标签，身份始终用 `scriptId + userId`；创建后不要改名；
-- 禁用用户记录（只列出，不自动删除）；
-- 风险提示（默认保留、禁用记录、队列名含“并行”等）。
-
-默认保留每个脚本的**第一个启用用户**；确认主号后用 `--keep` 指定：
-
-```powershell
-python tools\mas_split.py --keep "官-3:汐影月k" --keep "官-1:hbznn119-官"
-```
-
-也可以编辑 `dist\mas_split_keep.template.json` 后传 `--keep-file`。
+- 禁用用户记录（留在旧脚本归档，不自动删除）；
+- 风险提示（旧 history 不迁移、禁用记录、队列名含“并行”等）。
+- full 模式额外输出 old → new 映射模板，Apply 时补 scriptId/userId。
 
 ## Apply（尚未实现）
 
@@ -39,8 +36,9 @@ python tools\mas_split.py --keep "官-3:汐影月k" --keep "官-1:hbznn119-官"
 5. 改脚本 `Info.Name` 为计划里的稳定名字；
 6. 加入原 slot 队列（先串行、暂不并行）；
 7. Plan/NOOP + 单账号 canary；
-8. 再回原脚本删除/禁用已迁走的用户；
-9. 原脚本只留主号，历史锚点不变。
+8. full 模式：全部新脚本验证后，清空旧脚本用户、移除旧队列项，旧脚本归档；
+   keep 模式：只删除已迁走的用户，原脚本留主号；
+9. 记录 old script/user → new script/user 映射；旧 history 不迁移。
 
 ## 红线
 

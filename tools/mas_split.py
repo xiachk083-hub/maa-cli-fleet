@@ -128,9 +128,11 @@ def main():
     ap.add_argument('--mas-api', default=os.environ.get('MAS_API', 'http://127.0.0.1:36163'))
     ap.add_argument('--out', default='dist/mas_split_plan.json')
     ap.add_argument('--keep-out', default='dist/mas_split_keep.template.json')
+    ap.add_argument('--mode', choices=['full', 'keep'], default='full',
+                    help='full=全部启用用户拆出、旧脚本归档；keep=保留一个用户在原脚本')
     ap.add_argument('--keep', action='append', default=[],
-                    help='保留在原脚本的用户：<scriptId|scriptName>:<userId|userName>，可重复')
-    ap.add_argument('--keep-file', default='', help='保留映射 JSON')
+                    help='keep 模式：保留在原脚本的用户：<scriptId|scriptName>:<userId|userName>，可重复')
+    ap.add_argument('--keep-file', default='', help='keep 模式的保留映射 JSON')
     args = ap.parse_args()
 
     scripts, users = collect_mas(args.mas_api)
@@ -157,15 +159,18 @@ def main():
         total_active += len(active)
         total_disabled += len(disabled)
         qs = queue_names_for(sid, queues)
-        keep_uid = keep_map.get(sid, '')
-        keep = next((u for u in active if u['userId'] == keep_uid), None)
-        keep_source = 'explicit' if keep else 'default'
-        if keep is None:
-            keep = active[0]
-            keep_source = 'default'
+        keep = None
+        keep_source = ''
+        if args.mode == 'keep':
+            keep_uid = keep_map.get(sid, '')
+            keep = next((u for u in active if u['userId'] == keep_uid), None)
+            keep_source = 'explicit' if keep else 'default'
+            if keep is None:
+                keep = active[0]
+                keep_source = 'default'
         clones = []
         for u in active:
-            if u['userId'] == keep['userId']:
+            if keep is not None and u['userId'] == keep['userId']:
                 continue
             name = new_script_name(s.get('name', ''), u, used_names, planned_names)
             clones.append({
@@ -178,10 +183,12 @@ def main():
                 'queueTargets': [q['name'] for q in qs if q.get('timeEnabled')] or [q['name'] for q in qs],
             })
         warnings = []
-        if keep_source == 'default':
+        if args.mode == 'full':
+            warnings.append('全拆：旧脚本清空并归档；旧 history 不迁移，新 history 从新脚本名开始')
+        elif keep_source == 'default':
             warnings.append('保留用户是默认第一个启用用户；请确认主号或用 --keep 指定')
         if disabled:
-            warnings.append('脚本内还有 %d 个禁用用户；迁移前先导出/归档，不要静默删除' % len(disabled))
+            warnings.append('脚本内还有 %d 个禁用用户；留在旧脚本归档，不自动删除' % len(disabled))
         if any('并行' in q.get('name', '') for q in qs):
             warnings.append('队列名含“并行”；同一 MAA/模拟器上并发前先确认并发度/脚本锁')
         items.append({
@@ -191,11 +198,13 @@ def main():
             'maaPath': s.get('maaPath', ''),
             'queueInfo': qs,
             'activeUsers': len(active),
+            'oldScriptAction': 'ARCHIVE_AFTER_MOVE' if args.mode == 'full' else 'KEEP_ONE_USER',
+            'queueAction': 'REMOVE_OLD_ITEMS' if args.mode == 'full' else 'KEEP_OLD_ITEM',
             'keep': {
                 'userId': keep['userId'],
                 'userName': keep.get('name', ''),
                 'source': keep_source,
-            },
+            } if keep is not None else None,
             'clones': clones,
             'disabledUsers': [
                 {'userId': u['userId'], 'userName': u.get('name', '')}
@@ -208,13 +217,15 @@ def main():
     total_disabled = sum(len(x['disabledUsers']) for x in items)
     out = {
         'generatedAt': dt.datetime.now().isoformat(timespec='seconds'),
-        'mode': 'plan-only',
+        'mode': 'plan-only-' + args.mode,
         'masApi': args.mas_api,
         'summary': {
             'sharedScripts': len(items),
             'activeUsersInShared': total_active,
             'clones': total_clones,
             'newScripts': total_clones,
+            'oldScriptsArchived': len(items) if args.mode == 'full' else 0,
+            'keptUsers': 0 if args.mode == 'full' else len(items),
             'disabledUsers': total_disabled,
             'needsReview': sum(1 for x in items if x['warnings']),
         },
@@ -225,45 +236,72 @@ def main():
         json.dump(out, f, ensure_ascii=False, indent=2)
         f.write('\n')
 
-    keep_template = {
-        '_说明': '把 keepUserId 改成要留在原脚本的主号；其余启用用户会计划拆成单用户脚本。',
-        'scripts': [
-            {
-                'scriptId': x['scriptId'],
-                'scriptName': x['scriptName'],
-                'keepUserId': x['keep']['userId'],
-                'keepUserName': x['keep']['userName'],
-                'candidates': [
-                    {'userId': x['keep']['userId'], 'userName': x['keep']['userName']}
-                ] + [
-                    {'userId': c['oldUserId'], 'userName': c['userName']}
-                    for c in x['clones']
-                ],
-            }
-            for x in items
-        ],
-    }
+    if args.mode == 'keep':
+        side_template = {
+            '_说明': '把 keepUserId 改成要留在原脚本的主号；其余启用用户会计划拆成单用户脚本。',
+            'scripts': [
+                {
+                    'scriptId': x['scriptId'],
+                    'scriptName': x['scriptName'],
+                    'keepUserId': x['keep']['userId'],
+                    'keepUserName': x['keep']['userName'],
+                    'candidates': [
+                        {'userId': x['keep']['userId'], 'userName': x['keep']['userName']}
+                    ] + [
+                        {'userId': c['oldUserId'], 'userName': c['userName']}
+                        for c in x['clones']
+                    ],
+                }
+                for x in items
+            ],
+        }
+    else:
+        side_template = {
+            '_说明': '全拆模式：旧脚本归档；下面是 old -> new 映射，Apply 时记录新 scriptId/userId。',
+            'scripts': [
+                {
+                    'oldScriptId': x['scriptId'],
+                    'oldScriptName': x['scriptName'],
+                    'action': 'ARCHIVE_AFTER_MOVE',
+                    'newScripts': [
+                        {
+                            'oldUserId': c['oldUserId'],
+                            'userName': c['userName'],
+                            'server': c['server'],
+                            'newScriptName': c['newScriptName'],
+                        }
+                        for c in x['clones']
+                    ],
+                }
+                for x in items
+            ],
+        }
     os.makedirs(os.path.dirname(args.keep_out) or '.', exist_ok=True)
     with io.open(args.keep_out, 'w', encoding='utf-8') as f:
-        json.dump(keep_template, f, ensure_ascii=False, indent=2)
+        json.dump(side_template, f, ensure_ascii=False, indent=2)
         f.write('\n')
 
     s = out['summary']
-    safe_print('MAS SPLIT PLAN（只读，不会写 MAS）')
-    safe_print('共享脚本=%d 启用用户=%d 计划克隆=%d 禁用记录=%d' % (
-        s['sharedScripts'], s['activeUsersInShared'], s['clones'], s['disabledUsers']))
+    safe_print('MAS SPLIT PLAN（只读，不会写 MAS）mode=%s' % args.mode)
+    safe_print('共享脚本=%d 启用用户=%d 计划新脚本=%d 旧脚本归档=%d 禁用记录=%d' % (
+        s['sharedScripts'], s['activeUsersInShared'], s['newScripts'],
+        s['oldScriptsArchived'], s['disabledUsers']))
     for x in items:
         mark = ' [需确认]' if x['warnings'] else ''
-        safe_print('  %s (%s, emu=%s): 保留 %s [%s]%s -> 克隆 %d' % (
-            x['scriptName'], x['scriptId'][:8], x['emulatorIndex'],
-            x['keep']['userName'], x['keep']['source'], mark, len(x['clones'])))
+        if args.mode == 'full':
+            safe_print('  %s (%s, emu=%s): 旧脚本归档%s -> 新建 %d 个单用户脚本' % (
+                x['scriptName'], x['scriptId'][:8], x['emulatorIndex'], mark, len(x['clones'])))
+        else:
+            safe_print('  %s (%s, emu=%s): 保留 %s [%s]%s -> 克隆 %d' % (
+                x['scriptName'], x['scriptId'][:8], x['emulatorIndex'],
+                x['keep']['userName'], x['keep']['source'], mark, len(x['clones'])))
         for c in x['clones']:
             safe_print('      -> %-24s user=%s queue=%s' % (
                 c['newScriptName'], c['userName'], ','.join(c['queueTargets']) or '-'))
         for w in x['warnings']:
             safe_print('      ! ' + w)
     safe_print('plan json: %s' % args.out)
-    safe_print('keep template: %s' % args.keep_out)
+    safe_print(('mapping: %s' if args.mode == 'full' else 'keep template: %s') % args.keep_out)
     return 0
 
 
