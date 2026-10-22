@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -197,11 +198,18 @@ def collect_fleet(root: str):
         tasks = load_json(state_path).get('tasks') or {}
     day = game_day()
     for a in accounts:
-        d = tasks.get('daily:' + str(a.get('id', '')), {}) or {}
-        r = tasks.get('rogue:' + str(a.get('id', '')), {}) or {}
+        aid = str(a.get('id', ''))
+        d = tasks.get('daily:' + aid, {}) or {}
+        r = tasks.get('rogue:' + aid, {}) or {}
         a['_daily'] = d
         a['_rogue'] = r
         a['_today'] = (d.get('state') == 'done' and str(d.get('day', '')) == day)
+        # 肉鸽车道心跳（runner/laneBeat 写的 hb_rogue_<id>.txt）
+        hb_path = os.path.join(root, 'runner', 'hb_rogue_' + aid + '.txt')
+        try:
+            a['_rogue_hb_min'] = max(0.0, (time.time() - os.path.getmtime(hb_path)) / 60.0)
+        except OSError:
+            a['_rogue_hb_min'] = None
     return accounts, tasks, day
 
 
@@ -271,6 +279,37 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
         mas_present = u is not None
         owner = 'BOTH' if fleet_enabled and mas_present else 'FLEET' if fleet_enabled else 'MAS' if mas_present else 'NONE'
         fleet_today = bool(a.get('_today'))
+        rogue_task = str(a.get('rogueTask') or '')
+        rogue_state = str((a.get('_rogue') or {}).get('state') or '')
+        rogue_phase = str((a.get('_rogue') or {}).get('phase') or '')
+        rogue_note = str((a.get('_rogue') or {}).get('note') or '')
+        rogue_last = str((a.get('_rogue') or {}).get('lastResult') or '')
+        rogue_restarts = int((a.get('_rogue') or {}).get('restarts') or 0)
+        rogue_since = str((a.get('_rogue') or {}).get('phaseAt') or '')
+        rogue_hb = a.get('_rogue_hb_min')
+        rogue_stopped = ('已停止' in rogue_note) or rogue_state in ('done', 'stopped')
+        rogue_on = bool(rogue_task) and bool(a.get('enabled')) and not rogue_stopped
+        loop_state = ''
+        if rogue_task:
+            if not a.get('enabled'):
+                loop_state = 'disabled'
+            elif rogue_phase in ('rogue', 'paused', 'daily', 'resuming', 'stopped'):
+                loop_state = rogue_phase
+            elif str((a.get('_daily') or {}).get('state') or '') == 'running':
+                loop_state = 'daily'
+            elif '暂停' in rogue_note:
+                loop_state = 'paused'
+            elif rogue_on:
+                loop_state = 'rogue'
+            else:
+                loop_state = 'stopped'
+            if loop_state == 'rogue' and rogue_hb is not None and rogue_hb > 15:
+                loop_state = 'stale'
+        loop_labels = {
+            'rogue': '肉鸽运行', 'paused': '日常暂停肉鸽', 'daily': '日常插队',
+            'resuming': '肉鸽恢复中', 'stopped': '肉鸽停止', 'stale': '心跳异常',
+            'disabled': '未启用',
+        }
         h = history_for(hist, (u or {}).get('name', '')) if u else {}
         mas_history_today = bool(h) and day in h.get('days', [])
         mas_history_latest = h.get('latest', '')
@@ -280,9 +319,17 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
         mas_day = mas_history_today or bool(u and mas_today(u.get('lastProxyDate'), day))
         fleet_active = fleet_enabled and bool(a.get('_daily'))
         mas_active = bool(u and (u or {}).get('status'))
-        active = fleet_active or mas_active
+        daily_active = fleet_active or mas_active
+        active = daily_active or rogue_on
         cleared = fleet_today or mas_day
-        today_state = 'cleared' if cleared else ('not_cleared' if active else 'unknown')
+        if cleared:
+            today_state = 'cleared'
+        elif daily_active:
+            today_state = 'not_cleared'
+        elif rogue_on:
+            today_state = 'no_daily'
+        else:
+            today_state = 'unknown'
         conflict = bool(fleet_enabled and mas_present and (u or {}).get('status'))
         rows.append({
             'key': a.get('id', ''),
@@ -298,7 +345,17 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
             'fleetSanity': '%s/%s' % ((a.get('_daily') or {}).get('sanityCur', ''), (a.get('_daily') or {}).get('sanityMax', '')),
             'fleetNote': (a.get('_daily') or {}).get('note', ''),
             'fleetOut': (a.get('_daily') or {}).get('outFile', ''),
-            'rogue': (a.get('_rogue') or {}).get('state', ''),
+            'rogue': rogue_state,
+            'rogueTask': rogue_task,
+            'rogueState': rogue_state,
+            'rogueNote': rogue_note,
+            'rogueLast': rogue_last,
+            'rogueRestarts': rogue_restarts,
+            'rogueHbMin': round(rogue_hb, 1) if rogue_hb is not None else None,
+            'rogueActive': rogue_on,
+            'loopState': loop_state,
+            'loopLabel': loop_labels.get(loop_state, loop_state),
+            'loopSince': rogue_since,
             'emu': emu,
             'masUserId': (u or {}).get('userId', ''),
             'masName': (u or {}).get('name', ''),
@@ -349,6 +406,16 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
             'fleetNote': '',
             'fleetOut': '',
             'rogue': '',
+            'rogueTask': '',
+            'rogueState': '',
+            'rogueNote': '',
+            'rogueLast': '',
+            'rogueRestarts': 0,
+            'rogueHbMin': None,
+            'rogueActive': False,
+            'loopState': '',
+            'loopLabel': '',
+            'loopSince': '',
             'emu': u.get('emulatorIndex', ''),
             'masUserId': u.get('userId', ''),
             'masName': u.get('name', ''),
@@ -389,7 +456,11 @@ def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
         'conflicts': sum(1 for r in rows if r['conflict']),
         'todayCleared': sum(1 for r in rows if r['todayState'] == 'cleared'),
         'todayNotCleared': sum(1 for r in rows if r['todayState'] == 'not_cleared'),
+        'todayNoDaily': sum(1 for r in rows if r['todayState'] == 'no_daily'),
         'todayUnknown': sum(1 for r in rows if r['todayState'] == 'unknown'),
+        'rogueRunning': sum(1 for r in rows if r.get('loopState') == 'rogue'),
+        'roguePaused': sum(1 for r in rows if r.get('loopState') in ('paused', 'daily')),
+        'rogueStale': sum(1 for r in rows if r.get('loopState') == 'stale'),
     }
     return rows, summary
 
@@ -415,6 +486,8 @@ tr:hover{background:#151a23}
 .FLEET{background:#16351f;color:#7fe0a2}.MAS{background:#162a44;color:#79b8ff}
 .BOTH{background:#3a2415;color:#ffb86b}.NONE{background:#262a33;color:#9aa3b5}
 .yes{background:#16351f;color:#7fe0a2}.no{background:#3a1b1b;color:#ff9b9b}.unk{background:#262a33;color:#9aa3b5}
+.rogue{background:#2b1f3a;color:#c9a7ff}.pause{background:#3a2a15;color:#ffc46b}.stale{background:#3a1b1b;color:#ff7b7b}
+.na{background:#262a33;color:#9aa3b5}
 .conf{color:#ff8a8a;font-weight:700}.muted{color:#76809a}
 footer{margin-top:18px;color:#76809a;font-size:12px}
 @media(max-width:900px){th,td{white-space:normal}}
@@ -429,6 +502,10 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
         ('冲突', s['conflicts']),
         ('今天已清', s['todayCleared']),
         ('今天未清', s['todayNotCleared']),
+        ('纯肉鸽/无日常', s['todayNoDaily']),
+        ('肉鸽运行', s['rogueRunning']),
+        ('肉鸽暂停/插队', s['roguePaused']),
+        ('车道心跳异常', s['rogueStale']),
         ('未知', s['todayUnknown']),
         ('MAS 自动队列', s['masAutoQueued']),
     ]
@@ -446,6 +523,7 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
     out.append('<div class="bar">'
                '<button data-filter="all">全部</button>'
                '<button data-filter="notcleared">今天没清</button>'
+               '<button data-filter="rogue">肉鸽/循环</button>'
                '<button data-filter="conflict">冲突</button>'
                '<button data-filter="MAS">MAS</button>'
                '<button data-filter="FLEET">FLEET</button>'
@@ -453,21 +531,40 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
                '<span class="hint">只读：不写 MAS、不 dispatch</span></div>')
     out.append('<table id="t"><thead><tr>'
                '<th>账号</th><th>名称</th><th>归属</th><th>fleet 启用</th><th>fleet 日常</th>'
-               '<th>fleet 今日</th><th>MAS 状态</th><th>MAS 队列</th><th>MAS 今日</th><th>MAS 最近 history</th>'
+               '<th>fleet 今日</th><th>肉鸽任务</th><th>肉鸽状态</th><th>循环</th><th>车道心跳</th>'
+               '<th>MAS 状态</th><th>MAS 队列</th><th>MAS 今日</th><th>MAS 最近 history</th>'
                '<th>模拟器</th><th>匹配</th><th>冲突</th><th>备注</th>'
                '</tr></thead><tbody>')
     for r in rows:
         owner = r['owner']
-        cleared = {'cleared': 'yes', 'not_cleared': 'no', 'unknown': 'unknown'}.get(r['todayState'], 'unknown')
+        cleared = {'cleared': 'yes', 'not_cleared': 'no', 'no_daily': 'na',
+                   'unknown': 'unknown'}.get(r['todayState'], 'unknown')
         mas_status = 'ON' if r['masStatus'] else ('OFF' if r['masStatus'] is not None else '')
-        out.append('<tr data-owner="%s" data-cleared="%s" data-conflict="%s">' % (
-            owner, cleared, '1' if r['conflict'] else '0'))
+        out.append('<tr data-owner="%s" data-cleared="%s" data-conflict="%s" data-loop="%s">' % (
+            owner, cleared, '1' if r['conflict'] else '0', html.escape(r.get('loopState') or '')))
         out.append('<td>%s</td><td>%s</td>' % (html.escape(r['key']), html.escape(r['name'])))
         out.append('<td><span class="b %s">%s</span></td>' % (owner, owner))
         out.append('<td>%s</td><td>%s</td>' % ('是' if r['fleetEnabled'] else '否', html.escape(r['fleetDaily'] or '-')))
         fcell = r['fleetTodayCell']
         fcls = 'yes' if fcell == '已清' else ('no' if fcell == '未清' else 'unk')
         out.append('<td><span class="b %s">%s</span></td>' % (fcls, fcell))
+        out.append('<td>%s</td>' % html.escape(r.get('rogueTask') or '-'))
+        rdetail = r.get('rogueState') or ''
+        if r.get('rogueNote'):
+            rdetail += (' / ' if rdetail else '') + str(r.get('rogueNote'))
+        if r.get('rogueLast'):
+            rdetail += (' / ' if rdetail else '') + 'last=' + str(r.get('rogueLast'))
+        if r.get('rogueRestarts'):
+            rdetail += ' / restarts=%s' % r.get('rogueRestarts')
+        out.append('<td class="muted">%s</td>' % html.escape(rdetail or '-'))
+        loop = r.get('loopState') or ''
+        loop_cls = 'rogue' if loop == 'rogue' else ('pause' if loop in ('paused', 'daily', 'resuming') else
+                                                    ('stale' if loop == 'stale' else 'unk'))
+        loop_title = (' title="since %s"' % html.escape(r.get('loopSince'))) if r.get('loopSince') else ''
+        out.append('<td><span class="b %s"%s>%s</span></td>' % (
+            loop_cls, loop_title, html.escape(r.get('loopLabel') or '-')))
+        hb = r.get('rogueHbMin')
+        out.append('<td>%s</td>' % (('%.1f min' % hb) if hb is not None else '-'))
         out.append('<td>%s</td>' % html.escape(mas_status or '-'))
         out.append('<td class="muted">%s</td>' % html.escape(r.get('masQueues') or '-'))
         mcell = r['masTodayCell']
@@ -488,7 +585,8 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
                'const f=b.dataset.filter;document.querySelectorAll("[data-filter]").forEach(x=>x.style.background="");'
                'b.style.background="#2a3243";'
                'rows.forEach(r=>{let ok=f==="all"||r.dataset.owner===f||'
-               '(f==="notcleared"&&r.dataset.cleared==="no")||(f==="conflict"&&r.dataset.conflict==="1");'
+               '(f==="notcleared"&&r.dataset.cleared==="no")||(f==="conflict"&&r.dataset.conflict==="1")||'
+               '(f==="rogue"&&!["","disabled","stopped"].includes(r.dataset.loop));'
                'r.style.display=ok?"":"none";});});'
                '</script></body></html>')
     return ''.join(out)
@@ -699,17 +797,20 @@ def main():
 
     safe_print('MAS/FLEET inventory: %s' % args.out)
     safe_print('JSON: %s' % args.json)
-    safe_print('summary: fleet=%d enabled=%d mas=%d matched=%d unmatched=%d autoQueued=%d notAutoQueued=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d unknown=%d' % (
+    safe_print('summary: fleet=%d enabled=%d mas=%d matched=%d unmatched=%d autoQueued=%d notAutoQueued=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d noDaily=%d unknown=%d rogue=%d paused=%d stale=%d' % (
         summary['fleetAccounts'], summary['fleetEnabled'], summary['masUsers'], summary['masMatched'],
         summary['masUnmatched'], summary['masAutoQueued'], summary['masNotAutoQueued'], summary['both'],
         summary['masOnly'], summary['fleetOnly'], summary['conflicts'],
-        summary['todayCleared'], summary['todayNotCleared'], summary['todayUnknown']))
+        summary['todayCleared'], summary['todayNotCleared'], summary['todayNoDaily'], summary['todayUnknown'],
+        summary['rogueRunning'], summary['roguePaused'], summary['rogueStale']))
     if args.print:
         for r in rows:
-            safe_print('  %-5s %-5s fleet=%-7s today=%-3s mas=%-6s today=%-3s emu=%-3s match=%s' % (
+            safe_print('  %-5s %-5s fleet=%-7s today=%-3s mas=%-6s today=%-3s emu=%-3s match=%s loop=%-8s rogue=%s hb=%s' % (
                 r['key'] or '-', r['owner'], r['fleetDaily'] or '-', 'Y' if r['fleetToday'] else 'N',
                 'ON' if r['masStatus'] else ('OFF' if r['masStatus'] is not None else '-'),
-                'Y' if r['masToday'] else 'N', r['emu'] or '-', r['match']))
+                'Y' if r['masToday'] else 'N', r['emu'] or '-', r['match'],
+                r.get('loopState') or '-', r.get('rogueTask') or '-',
+                ('%.1f' % r['rogueHbMin']) if r.get('rogueHbMin') is not None else '-'))
 
 
 if __name__ == '__main__':

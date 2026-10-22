@@ -1,12 +1,26 @@
-# MAS 只读盘点 / 接管 Plan
+# MAS 盘点 / 调度 Plan
 
-> 2026-10-23。MAS 是过渡执行器，项目最终接管；本工具**只读**，不改 MAS、不 dispatch。
+> 2026-10-23 修订：**MAS 不是过渡执行器，而是长期日常管理/执行平台**。
+> 边界：MAA 负责游戏内自动化；MAS 负责账号/脚本/队列/历史/通知；本项目只做调度、首次登录和资源编排。
+> 本工具默认**只读**，不改 MAS、不 dispatch。
 
 ## 用途
 
 - **inventory**：同时看 MAS 脚本/账号和 fleet 账号，回答“谁在谁手里、今天清了没有”；
 - **plan**：给一份 desired JSON，输出 `CREATE_USER / CREATE_SCRIPT / UPDATE_USER / UPDATE_SCRIPT / UPDATE_QUEUE / NOOP / BLOCKED`，只做计划，不落地。
   会检查：账号是否存在、`Emulator.Index`、`Info.Path`（MAA 槽位）、`Run` 参数、`Server/Stage/Annihilation/Task`、脚本在哪个队列、队列 `TimeEnabled`。
+
+## 肉鸽 / 日常循环
+
+`inventory` 现在把直接调度 MAA 的肉鸽车道也纳入同一张表：
+
+- 数据源：`runner/state.json` 的 `daily:<id>`、`rogue:<id>`，以及 `runner/hb_rogue_<id>.txt` 车道心跳；
+- `loopState`：`rogue`（肉鸽跑着）、`paused`（日常暂停肉鸽）、`daily`（日常插队）、
+  `resuming`、`stopped`、`stale`（车道心跳 >15 分钟）、`disabled`；
+- `todayState`：`cleared` / `not_cleared` 只表示**日常**；纯肉鸽号是 `no_daily`，不再算“未清/未知”；
+- 新 runner 会在 `rogue:<id>` 写 `phase / phaseAt / lastResult / restarts`；旧 state 仍可读，只是没有这些新字段。
+
+看板卡片与筛选：肉鸽运行、肉鸽暂停/插队、车道心跳异常、肉鸽/循环。
 
 ## 运行
 

@@ -39,6 +39,13 @@ type Task struct {
 	PlanAt    string `json:"planAt,omitempty"`    // 前瞻排班给它的执行时刻
 	SanityCur int    `json:"sanityCur,omitempty"`
 	SanityMax int    `json:"sanityMax,omitempty"`
+
+	// 肉鸽/日常循环（rogue:<id> 台账用；daily/ann 忽略）。
+	// phase: rogue | paused | daily | resuming | stopped
+	Phase      string `json:"phase,omitempty"`
+	PhaseAt    string `json:"phaseAt,omitempty"`
+	LastResult string `json:"lastResult,omitempty"`
+	Restarts   int    `json:"restarts,omitempty"`
 }
 
 const maxAttempts = 3

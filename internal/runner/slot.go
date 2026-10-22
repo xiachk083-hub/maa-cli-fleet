@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,6 +35,7 @@ func (r *Runner) runTask(t *Task) {
 			r.finishTask(t, false, "肉鸽暂停失败："+err.Error(), "")
 			return // fail closed: no device action, no resume on timeout
 		}
+		r.setLoopPhase(acc.ID, "daily", "日常插队")
 		defer r.resumeResident(acc.ID)
 	}
 
@@ -378,6 +380,20 @@ func (r *Runner) ReportSummary() {
 			} else {
 				st["maa"] = "肉鸽未启动"
 			}
+			if t := r.state.Tasks["rogue:"+a.ID]; t != nil {
+				st["rogue"] = t.State
+				st["loop"] = t.Phase
+				st["loopSince"] = t.PhaseAt
+				st["rogueTask"] = t.File
+				st["rogueNote"] = t.Note
+				st["rogueRestarts"] = t.Restarts
+				if t.LastResult != "" {
+					st["rogueLast"] = t.LastResult
+				}
+			}
+			if age := r.laneBeatAgeMin(a); age < 9990 {
+				st["hbAgeMin"] = math.Round(age*10) / 10
+			}
 		}
 		if a.AnnTask != "" {
 			if t := r.state.Tasks["ann:"+a.ID]; t != nil && t.Week == week {
@@ -390,12 +406,21 @@ func (r *Runner) ReportSummary() {
 		}
 	}
 	queued, running := 0, 0
+	rogueRunning, roguePaused := 0, 0
 	for _, t := range r.state.Tasks {
 		if t.State == "queued" {
 			queued++
 		}
 		if t.State == "running" {
 			running++
+		}
+		if t.Kind == "rogue" {
+			switch t.Phase {
+			case "rogue":
+				rogueRunning++
+			case "paused":
+				roguePaused++
+			}
 		}
 	}
 	for _, t := range r.active {
@@ -418,7 +443,8 @@ func (r *Runner) ReportSummary() {
 	r.postJSON("/report", map[string]any{
 		"node_id": r.cfg.NodeID, "kind": "state",
 		"data": map[string]any{"machines": machines, "statusText": "runner",
-			"queue": map[string]any{"queued": queued, "running": running, "slots": r.cfg.Slots, "doneToday": doneN}},
+			"queue": map[string]any{"queued": queued, "running": running, "slots": r.cfg.Slots,
+				"doneToday": doneN, "rogueRunning": rogueRunning, "roguePaused": roguePaused}},
 	})
 }
 

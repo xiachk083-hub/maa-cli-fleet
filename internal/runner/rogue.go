@@ -145,10 +145,65 @@ func (r *Runner) upsertRogueTask(a model.Account, task, state, note string) *Tas
 	t.File = task
 	t.State = state
 	t.Note = note
+	switch state {
+	case "running":
+		t.Phase = "rogue"
+	case "done":
+		t.Phase = "stopped"
+	case "paused":
+		t.Phase = "paused"
+	}
+	t.PhaseAt = nowStamp()
 	if t.Started == "" {
 		t.Started = nowStamp()
 	}
 	return t
+}
+
+// setLoopPhase 持久化肉鸽/日常循环阶段，给看板和告警读。
+// 只更新 rogue:<id> 台账，不影响调度判断。
+func (r *Runner) setLoopPhase(accountID, phase, note string) {
+	if accountID == "" {
+		return
+	}
+	r.mu.Lock()
+	t := r.state.Tasks["rogue:"+accountID]
+	if t != nil {
+		t.Phase = phase
+		t.PhaseAt = nowStamp()
+		if note != "" {
+			t.Note = note
+		}
+	}
+	r.mu.Unlock()
+	r.saveState()
+}
+
+// setLoopResult 记录最近一次肉鸽判定的结果（成功/失败/中断原因）。
+func (r *Runner) setLoopResult(accountID, result string) {
+	if accountID == "" {
+		return
+	}
+	r.mu.Lock()
+	if t := r.state.Tasks["rogue:"+accountID]; t != nil {
+		t.LastResult = result
+		t.PhaseAt = nowStamp()
+	}
+	r.mu.Unlock()
+	r.saveState()
+}
+
+// setLoopRestarts 记录本车道的重开次数（跨进程重启后从 0 重新计）。
+func (r *Runner) setLoopRestarts(accountID string, n int) {
+	if accountID == "" {
+		return
+	}
+	r.mu.Lock()
+	if t := r.state.Tasks["rogue:"+accountID]; t != nil {
+		t.Restarts = n
+	}
+	r.mu.Unlock()
+	r.saveState()
 }
 
 // residentLoop 一台机的肉鸽常驻循环。
@@ -293,6 +348,7 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			}
 			l.setRun(nil)
 			l.restarts++
+			r.setLoopRestarts(a.ID, l.restarts)
 
 			if l.stopped() {
 				return
@@ -309,9 +365,11 @@ func (r *Runner) residentLoop(l *rogueLane) {
 			if reason == "任务退出" {
 				ok, why := r.judgeOutFile(run.out)
 				l.setNote("肉鸽" + map[bool]string{true: "完成", false: "失败"}[ok] + why)
+				r.setLoopResult(a.ID, map[bool]string{true: "ok", false: "fail"}[ok]+why)
 				log.Printf("[rogue:%s] 肉鸽退出：ok=%v %s → 立即重来", a.ID, ok, why)
 			} else {
 				l.setNote(reason)
+				r.setLoopResult(a.ID, reason)
 				log.Printf("[rogue:%s] 肉鸽中断：%s → 重来", a.ID, reason)
 			}
 			r.upsertRogueTask(a, task, "running", l.noteText())
@@ -340,6 +398,7 @@ func (r *Runner) pauseResidentWithin(accountID string, timeout time.Duration) er
 	l.paused = true
 	idle := l.idle
 	l.mu.Unlock()
+	r.setLoopPhase(accountID, "paused", "肉鸽暂停（日常插队）")
 	// The cycle owns kill and Wait; acknowledgement includes their completion.
 	if idle == nil {
 		return nil
@@ -350,6 +409,7 @@ func (r *Runner) pauseResidentWithin(accountID string, timeout time.Duration) er
 	case <-idle:
 		return nil
 	case <-timer.C:
+		r.setLoopPhase(accountID, "paused", "肉鸽暂停超时")
 		return fmt.Errorf("resident %s did not quiesce within %s", accountID, timeout)
 	}
 }
@@ -363,6 +423,7 @@ func (r *Runner) resumeResident(accountID string) {
 		return
 	}
 	l.setPaused(false)
+	r.setLoopPhase(accountID, "rogue", "日常结束，肉鸽恢复")
 	log.Printf("[rogue:%s] 日常结束 → 放开肉鸽", accountID)
 }
 
@@ -397,6 +458,16 @@ func forceStopGame(cfg Config, port, pkg string) {
 func (r *Runner) laneBeat(a model.Account) {
 	p := filepath.Join(filepath.Dir(r.cfg.StateFile), "hb_rogue_"+a.ID+".txt")
 	_ = os.WriteFile(p, []byte(time.Now().Format("2006-01-02 15:04:05")+"\n"), 0o644)
+}
+
+// laneBeatAgeMin 肉鸽车道最后心跳距今多少分钟；9999 = 没有心跳文件。
+func (r *Runner) laneBeatAgeMin(a model.Account) float64 {
+	p := filepath.Join(filepath.Dir(r.cfg.StateFile), "hb_rogue_"+a.ID+".txt")
+	mt, err := statPath(p)
+	if err != nil {
+		return 9999
+	}
+	return time.Since(mt).Minutes()
 }
 
 // lastCurTask 读 asst.log 尾巴，取最后一条 cur_task。日志还在刷、但任务名不变 = 空转。

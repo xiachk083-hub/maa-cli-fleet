@@ -130,6 +130,33 @@ func TestDailyFailsClosedOnResidentPauseTimeout(t *testing.T) {
 	}
 }
 
+func TestLoopPhaseTracksDailyHandoff(t *testing.T) {
+	r := testRunner(t)
+	a := model.Account{ID: "l1", Enabled: true, RogueTask: "rogue"}
+	r.accounts = []model.Account{a}
+	r.state.Tasks["rogue:l1"] = &Task{Key: "rogue:l1", AccountID: "l1", Kind: "rogue", File: "rogue"}
+	r.lanes[a.ID] = &rogueLane{acc: a}
+
+	if err := r.pauseResidentWithin(a.ID, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.state.Tasks["rogue:l1"].Phase; got != "paused" {
+		t.Fatalf("pause phase = %q, want paused", got)
+	}
+	r.setLoopPhase(a.ID, "daily", "日常插队")
+	if got := r.state.Tasks["rogue:l1"].Phase; got != "daily" {
+		t.Fatalf("daily phase = %q, want daily", got)
+	}
+	r.resumeResident(a.ID)
+	if got := r.state.Tasks["rogue:l1"].Phase; got != "rogue" {
+		t.Fatalf("resume phase = %q, want rogue", got)
+	}
+	r.setLoopResult(a.ID, "ok")
+	if got := r.state.Tasks["rogue:l1"].LastResult; got != "ok" {
+		t.Fatalf("last result = %q, want ok", got)
+	}
+}
+
 func TestSuccessfulDailyClearsConsumedPlan(t *testing.T) {
 	r := testRunner(t)
 	task := &Task{PlanAt: time.Now().Add(-time.Hour).Format(stampLayout)}
