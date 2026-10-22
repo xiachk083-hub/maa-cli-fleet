@@ -1,0 +1,23 @@
+{
+  "_说明": "MAS Plan 模式的示例。只读，不会写 MAS。accountId 可填手机号/邮箱，输出会掩码；不要填密码。",
+  "accounts": [
+    {
+      "key": "a05",
+      "name": "示例账号",
+      "accountId": "<PHONE_OR_EMAIL>",
+      "server": "Official",
+      "stage": "1-7",
+      "emulatorIndex": 5,
+      "maaPath": "E:/MAA-Multi/MAA_5",
+      "tasks": {
+        "StartUp": true,
+        "Fight": true,
+        "Infrast": true,
+        "Recruit": true,
+        "Mall": true,
+        "Award": true,
+        "Roguelike": false
+      }
+    }
+  ]
+}
