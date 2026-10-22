@@ -16,6 +16,7 @@ $env:PYTHONIOENCODING = "utf-8"
 E:\AUTO-MAS\environment\python\python.exe tools\mas_inventory.py `
   --fleet-root E:\maa-cli-fleet `
   --mas-api http://127.0.0.1:36163 `
+  --mas-history E:\AUTO-MAS\history `
   --out E:\maa-cli-fleet\dist\mas_inventory.html `
   --json E:\maa-cli-fleet\dist\mas_inventory.json `
   --print
@@ -41,9 +42,11 @@ E:\AUTO-MAS\environment\python\python.exe tools\mas_inventory.py `
 | 项 | 判据 |
 |---|---|
 | fleet 今日已清 | `state.json` 的 `daily:<id>` 为 `done` 且 `day == 游戏日`（04:00 切日） |
-| MAS 今日已清 | `Data.LastProxyDate` 以今天开头 |
+| MAS 今日已清 | `E:\AUTO-MAS\history\<游戏日>\<账号名>\*.log` 或 `*.json` 存在；API 的 `LastProxyDate` 仅作兜底（当前多为空） |
+| MAS 最近 | history 目录里该账号最近一个有日志的日期 + 累计天数 |
 | 冲突 | fleet 启用 + MAS 用户存在且 `Status=true` |
-| 归属 | `FLEET / MAS / BOTH / NONE`；MAS 用户按模拟器索引优先匹配 fleet，其次昵称 |
+| 归属 | `FLEET / MAS / BOTH / NONE`；MAS 用户按名称优先匹配 fleet，其次模拟器 |
+| MAS 自动队列 | `并行1..7` 等 `TimeEnabled=true` 队列；有 `*` 标记 |
 
 ## MAS API 事实（源码确认）
 

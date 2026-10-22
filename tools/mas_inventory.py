@@ -91,6 +91,50 @@ def mas_today(last_proxy: str, today: str) -> bool:
     return s.startswith(today)
 
 
+def collect_history(root: str):
+    """扫描 AUTO-MAS history：{账号名: {latest: 'YYYY-MM-DD', days: [...]}}。"""
+    if not root or not os.path.isdir(root):
+        return {}
+    out = {}
+    try:
+        day_names = sorted(os.listdir(root), reverse=True)
+    except Exception:
+        return {}
+    for day in day_names:
+        dp = os.path.join(root, day)
+        if not os.path.isdir(dp) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day):
+            continue
+        try:
+            names = os.listdir(dp)
+        except Exception:
+            continue
+        for name in names:
+            p = os.path.join(dp, name)
+            if not os.path.isdir(p):
+                continue
+            try:
+                files = [f for f in os.listdir(p) if f.lower().endswith(('.log', '.json'))]
+            except Exception:
+                continue
+            if not files:
+                continue
+            ent = out.setdefault(name, {'latest': day, 'days': []})
+            ent['days'].append(day)
+    return out
+
+
+def history_for(hist: dict, name: str) -> dict:
+    if not name:
+        return {}
+    if name in hist:
+        return hist[name]
+    n = norm(name)
+    for k, v in hist.items():
+        if norm(k) == n:
+            return v
+    return {}
+
+
 def collect_mas(api: str):
     scripts_raw = post_json(api, '/api/scripts/get', {}).get('data') or {}
     scripts, users = [], []
@@ -155,7 +199,37 @@ def collect_fleet(root: str):
     return accounts, tasks, day
 
 
-def build_inventory(accounts, scripts, users, day):
+def collect_queues(api: str):
+    """读取 MAS 队列及队列项，返回 [{queueId,name,timeEnabled,startupEnabled,scripts}]。"""
+    qraw = post_json(api, '/api/queue/get', {}).get('data') or {}
+    out = []
+    for qid, qc in qraw.items():
+        info = (qc or {}).get('Info') or {}
+        items = post_json(api, '/api/queue/item/get', {'queueId': qid}).get('data') or {}
+        scripts = []
+        for iid, it in items.items():
+            if iid == 'instances' or not isinstance(it, dict):
+                continue
+            sid = (it.get('Info') or {}).get('ScriptId')
+            if sid and sid != '-':
+                scripts.append(sid)
+        out.append({
+            'queueId': qid,
+            'name': info.get('Name', ''),
+            'timeEnabled': bool(info.get('TimeEnabled')),
+            'startupEnabled': bool(info.get('StartUpEnabled')),
+            'scripts': scripts,
+        })
+    return out
+
+
+def build_inventory(accounts, scripts, users, day, hist=None, queues=None):
+    hist = hist or {}
+    queues = queues or []
+    queue_by_script = {}
+    for q in queues:
+        for sid in q.get('scripts', []):
+            queue_by_script.setdefault(sid, []).append(q)
     fleet_by_emu = {}
     for a in accounts:
         fleet_by_emu.setdefault(str(a.get('emu', '')), []).append(a)
@@ -191,7 +265,13 @@ def build_inventory(accounts, scripts, users, day):
         mas_present = u is not None
         owner = 'BOTH' if fleet_enabled and mas_present else 'FLEET' if fleet_enabled else 'MAS' if mas_present else 'NONE'
         fleet_today = bool(a.get('_today'))
-        mas_day = bool(u and mas_today(u.get('lastProxyDate'), day))
+        h = history_for(hist, (u or {}).get('name', '')) if u else {}
+        mas_history_today = bool(h) and day in h.get('days', [])
+        mas_history_latest = h.get('latest', '')
+        qs = queue_by_script.get((u or {}).get('scriptId', ''), []) if u else []
+        mas_auto_queued = any(q.get('timeEnabled') for q in qs)
+        mas_queues = ', '.join(q.get('name', '') + ('*' if q.get('timeEnabled') else '') for q in qs)
+        mas_day = mas_history_today or bool(u and mas_today(u.get('lastProxyDate'), day))
         fleet_active = fleet_enabled and bool(a.get('_daily'))
         mas_active = bool(u and (u or {}).get('status'))
         active = fleet_active or mas_active
@@ -223,7 +303,12 @@ def build_inventory(accounts, scripts, users, day):
             'masActive': mas_active,
             'masToday': mas_day,
             'masTodayCell': ('已清' if mas_day else '未清') if mas_active else '-',
-            'masLastProxy': (u or {}).get('lastProxyDate', ''),
+            'masLastProxy': (u or {}).get('lastProxyDate', '') or mas_history_latest,
+            'masHistoryToday': mas_history_today,
+            'masHistoryLatest': mas_history_latest,
+            'masHistoryDays': len(h.get('days', [])),
+            'masQueues': mas_queues,
+            'masAutoQueued': mas_auto_queued,
             'masTimes': (u or {}).get('proxyTimes'),
             'active': active,
             'match': match,
@@ -235,7 +320,13 @@ def build_inventory(accounts, scripts, users, day):
     for u in users:
         if u['userId'] in used_users:
             continue
-        mas_day = mas_today(u.get('lastProxyDate'), day)
+        h = history_for(hist, u.get('name', ''))
+        mas_history_today = bool(h) and day in h.get('days', [])
+        mas_history_latest = h.get('latest', '')
+        qs = queue_by_script.get(u.get('scriptId', ''), [])
+        mas_auto_queued = any(q.get('timeEnabled') for q in qs)
+        mas_queues = ', '.join(q.get('name', '') + ('*' if q.get('timeEnabled') else '') for q in qs)
+        mas_day = mas_history_today or mas_today(u.get('lastProxyDate'), day)
         mas_active = bool(u.get('status'))
         rows.append({
             'key': '',
@@ -262,7 +353,12 @@ def build_inventory(accounts, scripts, users, day):
             'masActive': mas_active,
             'masToday': mas_day,
             'masTodayCell': ('已清' if mas_day else '未清') if mas_active else '-',
-            'masLastProxy': u.get('lastProxyDate', ''),
+            'masLastProxy': u.get('lastProxyDate', '') or mas_history_latest,
+            'masHistoryToday': mas_history_today,
+            'masHistoryLatest': mas_history_latest,
+            'masHistoryDays': len(h.get('days', [])),
+            'masQueues': mas_queues,
+            'masAutoQueued': mas_auto_queued,
             'masTimes': u.get('proxyTimes'),
             'active': mas_active,
             'match': 'none',
@@ -278,6 +374,8 @@ def build_inventory(accounts, scripts, users, day):
         'masUsers': len(users),
         'masMatched': len(used_users),
         'masUnmatched': len(users) - len(used_users),
+        'masAutoQueued': sum(1 for u in users if any(q.get('timeEnabled') for q in queue_by_script.get(u.get('scriptId', ''), []))),
+        'masNotAutoQueued': sum(1 for u in users if not any(q.get('timeEnabled') for q in queue_by_script.get(u.get('scriptId', ''), []))),
         'both': sum(1 for r in rows if r['owner'] == 'BOTH'),
         'masOnly': sum(1 for r in rows if r['owner'] == 'MAS'),
         'fleetOnly': sum(1 for r in rows if r['owner'] == 'FLEET'),
@@ -326,6 +424,7 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
         ('今天已清', s['todayCleared']),
         ('今天未清', s['todayNotCleared']),
         ('未知', s['todayUnknown']),
+        ('MAS 自动队列', s['masAutoQueued']),
     ]
     out = ['<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
@@ -348,7 +447,7 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
                '<span class="hint">只读：不写 MAS、不 dispatch</span></div>')
     out.append('<table id="t"><thead><tr>'
                '<th>账号</th><th>名称</th><th>归属</th><th>fleet 启用</th><th>fleet 日常</th>'
-               '<th>fleet 今日</th><th>MAS 状态</th><th>MAS 今日</th><th>MAS 最后代理</th>'
+               '<th>fleet 今日</th><th>MAS 状态</th><th>MAS 队列</th><th>MAS 今日</th><th>MAS 最近 history</th>'
                '<th>模拟器</th><th>匹配</th><th>冲突</th><th>备注</th>'
                '</tr></thead><tbody>')
     for r in rows:
@@ -364,10 +463,12 @@ footer{margin-top:18px;color:#76809a;font-size:12px}
         fcls = 'yes' if fcell == '已清' else ('no' if fcell == '未清' else 'unk')
         out.append('<td><span class="b %s">%s</span></td>' % (fcls, fcell))
         out.append('<td>%s</td>' % html.escape(mas_status or '-'))
+        out.append('<td class="muted">%s</td>' % html.escape(r.get('masQueues') or '-'))
         mcell = r['masTodayCell']
         mcls = 'yes' if mcell == '已清' else ('no' if mcell == '未清' else 'unk')
         out.append('<td><span class="b %s">%s</span></td>' % (mcls, mcell))
-        out.append('<td>%s / %s</td>' % (html.escape(r['masLastProxy'] or '-'), html.escape(str(r['masTimes']) if r['masTimes'] is not None else '-')))
+        hist_day = r.get('masHistoryLatest') or r.get('masLastProxy') or '-'
+        out.append('<td>%s / %s天</td>' % (html.escape(hist_day), html.escape(str(r.get('masHistoryDays') or 0))))
         out.append('<td>%s</td><td>%s</td>' % (html.escape(r['emu'] or '-'), html.escape(r['match'])))
         out.append('<td>%s</td>' % ('<span class="conf">冲突</span>' if r['conflict'] else '-'))
         note = r['fleetNote'] or r['masId'] or ''
@@ -489,6 +590,7 @@ def plan_desired(desired_path: str, scripts, users):
 def main():
     ap = argparse.ArgumentParser(description='MAS 只读盘点 / 接管 Plan')
     ap.add_argument('--mas-api', default=DEFAULT_API)
+    ap.add_argument('--mas-history', default=os.environ.get('MAS_HISTORY', r'E:\AUTO-MAS\history'))
     ap.add_argument('--fleet-root', default=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     ap.add_argument('--out', default='dist/mas_inventory.html')
     ap.add_argument('--json', default='dist/mas_inventory.json')
@@ -499,10 +601,12 @@ def main():
 
     scripts, users = collect_mas(args.mas_api)
     accounts, tasks, day = collect_fleet(args.fleet_root)
+    hist = collect_history(args.mas_history)
+    queues = collect_queues(args.mas_api)
 
     if args.desired:
         plan = plan_desired(args.desired, scripts, users)
-        out = {'generatedAt': dt.datetime.now().isoformat(timespec='seconds'), 'gameDay': day, 'plan': plan}
+        out = {'generatedAt': dt.datetime.now().isoformat(timespec='seconds'), 'gameDay': day, 'masHistory': os.path.abspath(args.mas_history), 'plan': plan}
         os.makedirs(os.path.dirname(args.plan_out) or '.', exist_ok=True)
         with io.open(args.plan_out, 'w', encoding='utf-8') as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
@@ -513,14 +617,16 @@ def main():
         safe_print('plan json: %s' % args.plan_out)
         return
 
-    rows, summary = build_inventory(accounts, scripts, users, day)
+    rows, summary = build_inventory(accounts, scripts, users, day, hist, queues)
     out = {
         'generatedAt': dt.datetime.now().isoformat(timespec='seconds'),
         'gameDay': day,
         'masApi': args.mas_api,
+        'masHistory': os.path.abspath(args.mas_history),
         'fleetRoot': os.path.abspath(args.fleet_root),
         'summary': summary,
         'masScripts': scripts,
+        'masQueues': queues,
         'rows': rows,
     }
     os.makedirs(os.path.dirname(args.json) or '.', exist_ok=True)
@@ -533,9 +639,10 @@ def main():
 
     safe_print('MAS/FLEET inventory: %s' % args.out)
     safe_print('JSON: %s' % args.json)
-    safe_print('summary: fleet=%d enabled=%d mas=%d matched=%d unmatched=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d unknown=%d' % (
+    safe_print('summary: fleet=%d enabled=%d mas=%d matched=%d unmatched=%d autoQueued=%d notAutoQueued=%d both=%d masOnly=%d fleetOnly=%d conflicts=%d todayCleared=%d notCleared=%d unknown=%d' % (
         summary['fleetAccounts'], summary['fleetEnabled'], summary['masUsers'], summary['masMatched'],
-        summary['masUnmatched'], summary['both'], summary['masOnly'], summary['fleetOnly'], summary['conflicts'],
+        summary['masUnmatched'], summary['masAutoQueued'], summary['masNotAutoQueued'], summary['both'],
+        summary['masOnly'], summary['fleetOnly'], summary['conflicts'],
         summary['todayCleared'], summary['todayNotCleared'], summary['todayUnknown']))
     if args.print:
         for r in rows:
