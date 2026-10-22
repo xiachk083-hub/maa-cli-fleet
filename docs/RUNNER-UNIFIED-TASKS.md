@@ -386,10 +386,15 @@ fleet.exe runner -conf runner\runner.json -set-rogue l2:rogue_jiegarden_l2
 23:00:42 asst.log: Roguelike theme JieGarden | mode 0 | difficulty 2147483647
 ```
 
-- l7 的 `rogue_jiegarden_l7`（maa pid=56640）全程未动；`accounts.json` 中 `l2.rogueTask=rogue_jiegarden_l2`。
-- 22:59 曾在 `JieGarden@Roguelike@SelectTheme` 点「来園記念」多次后进入主题；如果长期卡在这里，
-  先确认当前主题没有未结算的探索（游戏会锁其他主题卡）。
-- 之后重启的一轮在 `StartUp`/加载界面重试，属于游戏启动慢，车道会自己重来。
+- 22:56 热切换时 l7 的 `rogue_jiegarden_l7`（maa pid=56640）未动；`accounts.json` 中 `l2.rogueTask=rogue_jiegarden_l2`。
+- **但 22:56–00:00 并没有真正进入界园**：日志在 `JieGarden@Roguelike@SelectTheme` 反复点「来園記念」20 次后
+  `exec times exceeded`；终端右侧显示 `統合戦略 ファントムと緋き貴石 / 探索中`——傀影有未结算探索，锁住了界园。
+- 2026-10-23 00:0x 手动进入傀影主题页 → エンドロール（9:31 的失败局）→ 翻完结算，
+  四张主题卡恢复「テーマへ」，界园解锁。
+- 00:01 重启 runner（`daily:l2` 当日失败两次，手动标记跳过；备份 `state.json.bak-skipdaily-*`）；
+  00:06 l2 进入 `JieGarden@StartExplore@Roguelike@RecruitOther`，截图为 `OPERATION ISW-NO 露店市場へ`。
+- 模板 canonical 化（2026-10-23）：根目录 13 个 `rogue_<theme>_<account>.toml` 全部与 `theme` 一致，
+  6 个旧别名归档到 `config/tasks/legacy/`；l2 显示名改为「日服·界园」。
 - 回滚：`-set-rogue l2:rogue_phantom_l2`（旧任务文件仍在），或还原 `runner/accounts.json.bak-<时间>` 后重启 runner。
 
 ## 待办
