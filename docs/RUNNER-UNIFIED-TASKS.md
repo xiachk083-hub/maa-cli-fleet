@@ -365,6 +365,33 @@ fleet.exe runner -conf runner\runner.json -set-rogue l7:rogue_jiegarden_l7
 - **换主题前仍要先结算/放弃当前主题里进行中的探索**——这是游戏限制，不是 runner 能绕过的；
 - 回滚：`-set-rogue l7:<旧任务>`，或还原 `accounts.json.bak-<时间>` 后重启 runner。
 
+## 主题切换：l-2 傀影 → 界园（2026-10-22 22:56，热切换 TESTED）
+
+1. 新增 `config/tasks/rogue_jiegarden_l2.toml`，配装同 l-7（`YoStarJP` / `JieGarden` / `difficulty=MAX` /
+   维什戴尔 / 先手必胜 / 借干员+非好友 / 不投资）。
+2. 机端只发一条命令，不重启 runner、不动 l7：
+
+```powershell
+fleet.exe runner -conf runner\runner.json -set-rogue l2:rogue_jiegarden_l2
+```
+
+3. 实测证据：
+
+```
+22:56:33 [rogue:l2] 热切换任务 rogue_phantom_l2 → rogue_jiegarden_l2
+22:56:33 [rogue:l2] 停止旧任务 maa pid=37460，等待车道重发
+22:56:38 [rogue:l2] 切换任务 → rogue_jiegarden_l2
+22:56:44 [rogue:l2] 已发车 rogue_jiegarden_l2（pid=43640）
+23:00:24 [rogue:l2] 肉鸽退出：ok=true completed=2 → 立即重来
+23:00:42 asst.log: Roguelike theme JieGarden | mode 0 | difficulty 2147483647
+```
+
+- l7 的 `rogue_jiegarden_l7`（maa pid=56640）全程未动；`accounts.json` 中 `l2.rogueTask=rogue_jiegarden_l2`。
+- 22:59 曾在 `JieGarden@Roguelike@SelectTheme` 点「来園記念」多次后进入主题；如果长期卡在这里，
+  先确认当前主题没有未结算的探索（游戏会锁其他主题卡）。
+- 之后重启的一轮在 `StartUp`/加载界面重试，属于游戏启动慢，车道会自己重来。
+- 回滚：`-set-rogue l2:rogue_phantom_l2`（旧任务文件仍在），或还原 `runner/accounts.json.bak-<时间>` 后重启 runner。
+
 ## 待办
 
 
@@ -374,5 +401,5 @@ ogue_cli_ops.ps1` 里的 `cycle/watch` 那套（留作手动兜底）。
 3. `fleet runner -status` 的"在跑 N"永远显示 0（进程启动时把读到的 running 当"重启回收"，只影响显示，不影响调度）——顺手修一下更好。
 4. 队列排序：91 个待跑任务里，同优先级按 map 随机序领（BuildPlan 会把热改以外的优先级统一降到 10）——"越早 enqueue 越先跑"不明显，不值得急，但可整理。
 5. 停机 drain 超时会留孤儿 maa（见「主题切换」小节）：drain 超时后应杀掉在场 maa（否则与新进程重排的同名任务抢同一台模拟器）。
-6. 肉鸽换主题缺前置：切主题前得先确认「当前主题没有进行中的探索」（日服会直接锁住其他主题卡，MAA 自己不会结算/放弃，见「主题切换」小节）——建议做成任务制作器的前置检查 / 一个「结算/放弃」任务模板。
+6. 肉鸽换主题缺前置：**本地热切换命令已有（`-set-rogue`，2026-10-22）**，但切前仍需确认「当前主题没有进行中的探索」（日服会直接锁住其他主题卡，MAA 自己不会结算/放弃，见「主题切换」小节）——建议做成任务制作器的前置检查 / 一个「结算/放弃」任务模板。
 7. emu 5/13/14/30 起不来（10-03 实测：`MuMuManager control --vmindex 5 launch` 返 errcode=0，75s 后仍 `is_process_started=false`；其余 51 台正常，内存余 31GB）→ 这 4 号今天日常全灭（a05/a13/a14/a30，每号已满 3 次重试）。待查：这 4 个实例是不是坏 VM / 要不要重装。

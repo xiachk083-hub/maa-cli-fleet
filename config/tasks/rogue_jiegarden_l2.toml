@@ -1,0 +1,24 @@
+# rogue_jiegarden_l2.toml — l-2（主机 idx28 / 17280，日服）界园肉鸽 · 一直刷
+#
+# 用户 2026-10-22 指示：l-2 从傀影换成界园（用 l-2 验证 setRogue 热切换）。
+# 配装沿用 l-1/l-5/l-7 既定口径：难度 MAX / 维什戴尔 / 先手必胜 / 借干员+非好友助战 / 不投资。
+
+[[tasks]]
+name = "StartUp"
+type = "StartUp"
+params = { client_type = "YoStarJP", start_game_enabled = true }
+
+[[tasks]]
+name = "Roguelike 无限"
+type = "Roguelike"
+params = {
+  theme = "JieGarden",
+  mode = 0,
+  starts_count = 99999,
+  difficulty = 2147483647,
+  core_char = "维什戴尔",
+  roles = "先手必胜",
+  use_support = true,
+  use_nonfriend_support = true,
+  investment_enabled = false,
+}
