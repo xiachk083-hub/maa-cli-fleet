@@ -260,9 +260,10 @@ def main():
         return 3
 
     result = str(data.get('maa_result') or '')
-    if '完成' in result or '成功' in result:
+    result_l = result.lower()
+    if 'success' in result_l or '完成' in result or '成功' in result:
         status = 'finished'
-    elif '失败' in result or '异常' in result:
+    elif '失败' in result or '异常' in result or 'error' in result_l:
         status = 'failed'
     else:
         status = 'unknown'
