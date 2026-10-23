@@ -130,13 +130,20 @@ def main():
     ap.add_argument('--keep-out', default='dist/mas_split_keep.template.json')
     ap.add_argument('--mode', choices=['full', 'keep'], default='full',
                     help='full=全部启用用户拆出、旧脚本归档；keep=保留一个用户在原脚本')
+    ap.add_argument('--script', default='', help='只处理指定脚本（scriptId 或脚本名）')
     ap.add_argument('--keep', action='append', default=[],
                     help='keep 模式：保留在原脚本的用户：<scriptId|scriptName>:<userId|userName>，可重复')
     ap.add_argument('--keep-file', default='', help='keep 模式的保留映射 JSON')
     args = ap.parse_args()
 
     scripts, users = collect_mas(args.mas_api)
+    all_scripts = scripts
     queues = collect_queues(args.mas_api)
+    if args.script:
+        hits = [s for s in scripts if s.get('scriptId') == args.script or norm(s.get('name')) == norm(args.script)]
+        if len(hits) != 1:
+            raise SystemExit('--script 不唯一或不存在：%s' % args.script)
+        scripts = hits
     keep_map = load_keep(args.keep_file)
     keep_map.update(parse_keep_args(args.keep, scripts, users))
 
@@ -144,7 +151,7 @@ def main():
     for u in users:
         by_script.setdefault(u.get('scriptId', ''), []).append(u)
 
-    used_names = {s.get('name', '') for s in scripts}
+    used_names = {s.get('name', '') for s in all_scripts}
     planned_names = set()
     items = []
     total_active = total_clones = total_disabled = 0
