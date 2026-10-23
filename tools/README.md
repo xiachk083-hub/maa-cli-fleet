@@ -8,6 +8,8 @@
 | `mas_split.py` | 多用户脚本拆分 Plan（只读；列出保留/克隆/队列/风险） | 不写 MAS；Apply 需另做 |
 | `mas_split_apply.py` | 拆分 Apply（clone/finalize/rollback，分阶段） | 必须显式 `--apply`；先备份、暂停队列 |
 | `session_profiler.py` | 只读采集模拟器/MAA 的 CPU 曲线与活跃实例 | 供 emulator session 画像；不改队列 |
+| `mas_queue_audit.py` | 队列清理 Plan（只读）：路径冲突、重复脚本、临时队列 | 见 `docs/MAS-QUEUE-CLEANUP.md` |
+| `mas_queue_apply.py` | 归档临时队列：改名 `归档-*`、强制禁用 | 默认 dry-run；正式队列不动 |
 | `fleet_mcp.py` | MCP 网关（stdio），把旧 PS 栈的 11 个操作暴露给 Agent | **Legacy**：驱动 `ops/rogue_cli_ops.ps1`，不是 Go runner |
 | `gen_accounts.ps1` | 从 AUTO-MAS 配置生成账号表 / 任务 TOML | **Legacy**：已被 `fleet gen` 取代 |
 | `shot_annotate.py` | 给大厅截图叠信息面板（Pillow） | 对外分享请加 `--mask-phone` |
