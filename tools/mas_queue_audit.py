@@ -145,9 +145,9 @@ def main():
             reasons.append('队列内 %d 个脚本共用同一个 MAA 路径，必须串行并留冷却' % len(q['scripts']))
         paths = {norm_path(s.get('maaPath')) for s in q['scripts'] if s.get('maaPath')}
         if len(paths) > 1:
-            reasons.append('队列内出现多个 MAA 路径，队列编辑异常')
-            action = 'REVIEW'
+            reasons.append('队列内使用多个 MAA 路径（MAA 池）')
         q['action'] = action
+        q['pool'] = len(paths) > 1
         q['reasons'] = reasons
         q['maaPaths'] = sorted(paths)
 

@@ -11,6 +11,7 @@
 | `mas_queue_audit.py` | 队列清理 Plan（只读）：路径冲突、重复脚本、临时队列 | 见 `docs/MAS-QUEUE-CLEANUP.md` |
 | `mas_queue_apply.py` | 归档临时队列：改名 `归档-*`、强制禁用 | 默认 dry-run；正式队列不动 |
 | `maa_path_lease.py` | MAA 路径租约/冷却/进程状态 | 供调度器在启动前 acquire；不改 MAA |
+| `mas_maa_pool_apply.py` | 按队列项单双分给队列分配第二个 MAA | 默认 dry-run；只改 ScriptInfo.Path |
 | `fleet_mcp.py` | MCP 网关（stdio），把旧 PS 栈的 11 个操作暴露给 Agent | **Legacy**：驱动 `ops/rogue_cli_ops.ps1`，不是 Go runner |
 | `gen_accounts.ps1` | 从 AUTO-MAS 配置生成账号表 / 任务 TOML | **Legacy**：已被 `fleet gen` 取代 |
 | `shot_annotate.py` | 给大厅截图叠信息面板（Pillow） | 对外分享请加 `--mask-phone` |
